@@ -14,6 +14,91 @@ import struct
 import xml.etree.ElementTree
 from optparse import OptionParser
 
+#ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
+class PackageSection:
+
+    def __init__(self, i_path, i_size, i_timestamp):
+        self._path = i_path
+        self._body = i_size
+        self._timestamp = i_timestamp
+
+    def __str__(self):
+        return str(self.__dict__)
+
+#ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
+class PackageFile:
+
+    def __init__(self, i_tag):
+        self._offset = 0
+        self._sections = list()
+        self._tag = i_tag
+
+    def __str__(self):
+        return str(self.__dict__)
+
+#ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
+class PackageCluster:
+
+    def __init__(self, i_path, io_sections):
+
+        # package-fileの数を取得。
+        self._path = os.path.normpath(i_path)
+        a_contents = open(self._path, mode='rb')
+        a_data = struct.unpack('<2H', a_contents.read(2 * 2))
+        a_num_files = a_data[0]
+
+        # section数として有効な場合は巻き戻す。
+        if a_data[1] <= 9999:
+            a_contents.seek(2)
+
+        # packge-fileの目次を取得。
+        self._files = list()
+        while len(self._files) < a_num_files:
+            a_num_sections = struct.unpack('<H', a_contents.read(2))[0]
+            a_file = PackageFile(_read_wchar_string(a_contents))
+            self._files.append(a_file)
+            a_dummy = a_contents.read(1)
+            a_file._offset = struct.unpack('<L', a_contents.read(4))[0]
+            while len(a_file._sections) < a_num_sections:
+                a_path = _read_wchar_string(a_contents)
+                a_data = struct.unpack('<LQ', a_contents.read(4 + 8))
+                a_file._sections.append(
+                    PackageSection(a_path, a_data[0], a_data[1]))
+                a_section = io_sections.get(a_path)
+                if a_section is None or a_section._timestamp < a_data[1]:
+                    io_sections[a_path] = a_file._sections[-1]
+                if 4 < a_file._offset:
+                    print(a_file._offset, len(self._files), i_path, a_file._sections[-1]._body)
+
+    def _load(self, i_index):
+        a_file = self._files[i_index]
+
+#ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
+class PackageArchive:
+
+    def __init__(self):
+        self._clusters = list()
+        self._sections = dict()
+
+    def append(self, i_path):
+        self._clusters.append(PackageCluster(i_path, self._sections))
+
+    def load(self, i_path):
+        a_target = self._sections.get(i_path)
+        if a_target is None:
+            return None
+        if isinstance(a_target._body, bytes):
+            return a_target._body
+
+        for a_cluster in self._clusters:
+            for i, a_file in enumerate(a_cluster._files):
+                for a_section in a_file._sections:
+                    if a_section is a_target:
+                        a_cluster._load(i)
+                        return a_target._body
+        raise
+
+#ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 #------------------------------------------------------------------------------
 ## @brief main関数
 #  @param[in] i_options   option値。
@@ -21,11 +106,14 @@ from optparse import OptionParser
 def _main(i_options, i_arguments):
     if not i_options.captions_ods or not i_options.base_path:
         return False
+    if not os.path.isdir(i_options.base_path):
+        raise Exception(
+            ''.join(('ディレクトリ"', i_options.base_path, '"が見つかりませんでした。')))
 
     # "*0000.dgp"からfile一覧を作る。
-    a_files = {}
+    a_packages = PackageArchive()
     for a_path in glob.iglob(os.path.join(i_options.base_path, '*0000.dgp')):
-        _make_file_map(a_files, a_path)
+        a_packages.append(a_path)
 
     # ods-fileから'content.xml'を取り出す。
     a_zip = zipfile.ZipFile(i_options.captions_ods, 'r')
@@ -45,19 +133,23 @@ def _main(i_options, i_arguments):
     # 字幕textを書き換える。
     a_chars = set()
     for a_key, a_captions in a_archive.items():
-        a_entry = a_files.get(a_key + '.txt')
+        a_entry = a_packages.load(a_key + '.txt')
         if a_entry is not None:
             #_modify_caption_file(a_path, a_captions, a_chars)
             #break
-            print(a_key)
+            pass
 
 #------------------------------------------------------------------------------
+class Entry:
+    def __str__(self):
+        return str(self.__dict__)
+
 def _make_file_map(io_files, i_path):
     a_dgp_path = os.path.normpath(i_path)
     a_file = open(i_path, mode='rb')
     a_data = struct.unpack('<2H', a_file.read(2 * 2))
     a_num_archives = a_data[0]
-    if a_data[1] <= 0xff:
+    if a_data[1] <= 9999:
         a_file.seek(2)
     for i in range(a_num_archives):
         a_dgp_path = a_dgp_path[:-len('0000.dgp')] + '%04u.dgp' % (i + 1)
@@ -69,12 +161,13 @@ def _make_file_map(io_files, i_path):
             a_name = _read_wchar_string(a_file)
             a_data = struct.unpack('<LQ', a_file.read(4 + 8))
             a_entry = io_files.get(a_name)
-            if a_entry is None or a_entry['time'] < a_data[1]:
-                io_files[a_name] = {
-                    'size': a_data[0],
-                    'time': a_data[1],
-                    'offset': a_offset,
-                    'dgp': a_dgp_path}
+            if a_entry is None or a_entry._time < a_data[1]:
+                a_entry = Entry()
+                a_entry._size = a_data[0]
+                a_entry._time = a_data[1]
+                a_entry._offset = a_offset
+                a_entry.dgp = a_dgp_path
+                io_files[a_name] = a_entry
             a_offset += a_data[0]
 
 #------------------------------------------------------------------------------
@@ -171,7 +264,7 @@ def _parse_arguments(io_parser):
         '-c',
         '--captions',
         dest='captions_ods',
-        default='captions.jp.ods',
+        default='DefenseGridCaptionMOD.ods',
         help='set captions ods-file path name')
     return io_parser.parse_args()
 
