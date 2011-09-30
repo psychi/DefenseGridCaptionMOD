@@ -4,7 +4,7 @@
 #------------------------------------------------------------------------------
 ## @file DefenseGrid.py
 #  @brief "Defense Grid: The Awakening" caption builder for Python 3.2 or later.
-#  @date 2011.09.22
+#  @date 2011.09.30
 import sys
 import os.path
 import subprocess
@@ -17,86 +17,191 @@ from optparse import OptionParser
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 class PackageSection:
 
+    #--------------------------------------------------------------------------
+    ## @param[in] i_path      sectionのpath名。
+    #  @param[in] i_size      sectionのbyte-size。
+    #  @param[in] i_timestamp sectionのtimestamp
     def __init__(self, i_path, i_size, i_timestamp):
         self._path = i_path
-        self._body = i_size
+        self._size = i_size
+        self._contents = None
         self._timestamp = i_timestamp
 
+    #--------------------------------------------------------------------------
     def __str__(self):
         return str(self.__dict__)
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 class PackageFile:
 
-    def __init__(self, i_tag):
-        self._offset = 0
-        self._sections = list()
-        self._tag = i_tag
+    #--------------------------------------------------------------------------
+    ## @param[in,out] io_sections sectionを登録する辞書。
+    #  @param[in,out] io_catalog  読み込む目次stream。
+    def __init__(self, io_sections, io_catalog):
 
+        self._modified = False
+
+        # 各種file属性を取得。
+        a_num_sections = struct.unpack('<H', io_catalog.read(2))[0]
+        self._tag = _read_wchar_string(io_catalog)
+        self._unknown = io_catalog.read(1)
+        self._offset = struct.unpack('<L', io_catalog.read(4))[0]
+
+        # sectionを構築。
+        self._sections = list()
+        while len(self._sections) < a_num_sections:
+
+            # 新たなsectionを構築し、section配列に登録。
+            a_path = _read_wchar_string(io_catalog)
+            a_data = struct.unpack('<LQ', io_catalog.read(4 + 8))
+            self._sections.append(
+                PackageSection(a_path, a_data[0], a_data[1]))
+
+            # section辞書に登録。
+            a_section = io_sections.get(a_path)
+            if a_section is None or a_section._timestamp < a_data[1]:
+                io_sections[a_path] = self._sections[-1]
+
+    #--------------------------------------------------------------------------
+    def _read(self, i_path):
+
+        # package-fileを開く。
+        if not os.path.isfile(i_path):
+            raise Exception(
+                ''.join(('"', i_path, '"は、ファイルではありません。')))
+        a_stream = open(i_path, mode='rb')
+
+        # 文字列配列を読み込む。
+        a_num_strings = struct.unpack('<L', a_stream.read(4))[0]
+        self._strings = list()
+        while len(self._strings) < a_num_strings:
+            self._strings.append(_read_wchar_string(a_stream))
+
+        if a_stream.tell() != self._offset:
+            raise
+
+        # section-contensを読み込む。
+        for a_section in self._sections:
+            a_section._contents = a_stream.read(a_section._size)
+
+    #--------------------------------------------------------------------------
     def __str__(self):
         return str(self.__dict__)
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 class PackageCluster:
 
-    def __init__(self, i_path, io_sections):
+    #--------------------------------------------------------------------------
+    ## @param[in,out] io_sections sectionを登録する辞書。
+    #  @param[in,out] i_path      読み込む目次fileのpath名。
+    def __init__(self, io_sections, i_path):
 
-        # package-fileの数を取得。
+        # 目次fileを開く。
         self._path = os.path.normpath(i_path)
-        a_contents = open(self._path, mode='rb')
-        a_data = struct.unpack('<2H', a_contents.read(2 * 2))
+        a_catalog = open(self._path, mode='rb')
+
+        # file数を取得。
+        a_data = struct.unpack('<2H', a_catalog.read(2 * 2))
         a_num_files = a_data[0]
 
-        # section数として有効な場合は巻き戻す。
-        if a_data[1] <= 9999:
-            a_contents.seek(2)
+        # Steam version?
+        if 9999 < a_data[1]:
+            self._steam = a_data[1]
+        else:
+            # section数として有効だった場合は巻き戻す。
+            self._steam = None
+            a_catalog.seek(2)
 
-        # packge-fileの目次を取得。
+        # file配列を構築。
         self._files = list()
         while len(self._files) < a_num_files:
-            a_num_sections = struct.unpack('<H', a_contents.read(2))[0]
-            a_file = PackageFile(_read_wchar_string(a_contents))
-            self._files.append(a_file)
-            a_dummy = a_contents.read(1)
-            a_file._offset = struct.unpack('<L', a_contents.read(4))[0]
-            while len(a_file._sections) < a_num_sections:
-                a_path = _read_wchar_string(a_contents)
-                a_data = struct.unpack('<LQ', a_contents.read(4 + 8))
-                a_file._sections.append(
-                    PackageSection(a_path, a_data[0], a_data[1]))
-                a_section = io_sections.get(a_path)
-                if a_section is None or a_section._timestamp < a_data[1]:
-                    io_sections[a_path] = a_file._sections[-1]
-                if 4 < a_file._offset:
-                    print(a_file._offset, len(self._files), i_path, a_file._sections[-1]._body)
+            self._files.append(PackageFile(io_sections, a_catalog))
 
-    def _load(self, i_index):
-        a_file = self._files[i_index]
+    #--------------------------------------------------------------------------
+    def _read(self, i_index):
+        self._files[i_index]._read(self._file_path(i_index))
+
+    #--------------------------------------------------------------------------
+    def _file_path(self, i_index):
+        if self._path:
+            return self._path[:-len('0000.dgp')] + '%04u.dgp' % (i_index + 1)
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 class PackageArchive:
 
+    #--------------------------------------------------------------------------
     def __init__(self):
-        self._clusters = list()
+        self._clusters = dict()
         self._sections = dict()
 
-    def append(self, i_path):
-        self._clusters.append(PackageCluster(i_path, self._sections))
+    #--------------------------------------------------------------------------
+    def read(self, i_path):
+        a_cluster = PackageCluster(self._sections, i_path)
+        self._clusters[a_cluster._path] = a_cluster
 
-    def load(self, i_path):
-        a_target = self._sections.get(i_path)
-        if a_target is None:
-            return None
-        if isinstance(a_target._body, bytes):
-            return a_target._body
+    #--------------------------------------------------------------------------
+    def write(self, i_out_dir):
 
-        for a_cluster in self._clusters:
+        if not os.path.isdir(i_out_dir):
+            raise Exception(
+                ''.join(('"', i_out_dir, '"は、ディレクトリではありません。')))
+
+        for a_cluster in self._clusters.values():
+            a_written = False
             for i, a_file in enumerate(a_cluster._files):
-                for a_section in a_file._sections:
-                    if a_section is a_target:
-                        a_cluster._load(i)
-                        return a_target._body
-        raise
+                if a_file._modified:
+                    a_file._write(
+                        os.path.join(
+                            i_out_dir, 
+                            os.path.basename(a_cluster._file_path(i))))
+                    a_written = True
+            if a_written:
+                a_cluster._write_catalog()
+
+    #--------------------------------------------------------------------------
+    ## @brief packageからbytes-objectを取得。
+    #  @param[in] i_path sectionのpath名。
+    def get(self, i_path):
+
+        # path名に対応するsectionを検索。
+        a_target = self._sections.get(i_path)
+        if a_target is not None:
+
+            # sectionが空の場合は、package-fileを読み込む。
+            if a_target._contents is None:
+                for a_cluster in self._clusters.values():
+                    for i, a_file in enumerate(a_cluster._files):
+                        for a_section in a_file._sections:
+                            if a_section is a_target:
+                                a_cluster._read(i)
+                                break;
+                else:
+                    raise
+            return a_target._contents
+
+    #--------------------------------------------------------------------------
+    ## @brief packageにbytes-objectを設定。
+    #  @param[in] i_path sectionのpath名。
+    #  @param[in] i_contents 設定するbytes-object。
+    def set(self, i_path, i_contents):
+        if not isinstance(i_contents, bytes):
+            raise
+
+        # path名に対応するsectionを検索。
+        a_target = self._sections.get(i_path)
+        if a_target is not None:
+            for a_cluster in self._clusters.values():
+                for a_file in a_cluster._files:
+                    for a_section in a_file._sections:
+                        if a_section is a_target:
+                            if a_section._contents is not i_contents:
+                                a_section._contents = i_contents
+                                a_file._modified = True
+                                return True
+                            else:
+                                return False
+            else:
+                raise
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 #------------------------------------------------------------------------------
@@ -104,16 +209,16 @@ class PackageArchive:
 #  @param[in] i_options   option値。
 #  @param[in] i_arguments 引数list。
 def _main(i_options, i_arguments):
-    if not i_options.captions_ods or not i_options.base_path:
+    if not i_options.captions_ods or not i_options.installed_dir:
         return False
-    if not os.path.isdir(i_options.base_path):
+    if not os.path.isdir(i_options.installed_dir):
         raise Exception(
-            ''.join(('ディレクトリ"', i_options.base_path, '"が見つかりませんでした。')))
+            ''.join(('"', i_options.installed_dir, '"は、ディレクトリではありません。')))
 
-    # "*0000.dgp"からfile一覧を作る。
+    # "*0000.dgp"を読み込み、package書庫を作る。
     a_packages = PackageArchive()
-    for a_path in glob.iglob(os.path.join(i_options.base_path, '*0000.dgp')):
-        a_packages.append(a_path)
+    for a_path in glob.iglob(os.path.join(i_options.installed_dir, '*0000.dgp')):
+        a_packages.read(a_path)
 
     # ods-fileから'content.xml'を取り出す。
     a_zip = zipfile.ZipFile(i_options.captions_ods, 'r')
@@ -123,64 +228,33 @@ def _main(i_options, i_arguments):
         xml.etree.ElementTree.fromstring(a_content.decode('utf-8')))
 
     # 'content.xml'からtable要素を取り出し、字幕辞書を作る。
-    a_archive = {}
+    a_captions = {}
     a_body = a_content.find(_ns0('body'))
     a_spreadsheet = a_body.find(_ns0('spreadsheet'))
     for a_table in a_spreadsheet.findall(_table_ns('table')):
         a_name = a_table.attrib.get(_table_ns('name'))
-        a_archive[a_name] = _make_caption_dict(a_table)
+        a_captions[a_name] = _make_caption_dict(a_table)
 
     # 字幕textを書き換える。
     a_chars = set()
-    for a_key, a_captions in a_archive.items():
-        a_entry = a_packages.load(a_key + '.txt')
+    for a_key, a_dict in a_captions.items():
+        a_entry = a_packages.get(a_key + '.txt')
         if a_entry is not None:
-            #_modify_caption_file(a_path, a_captions, a_chars)
+            #_modify_caption_file(a_path, a_dict, a_chars)
             #break
             pass
 
 #------------------------------------------------------------------------------
-class Entry:
-    def __str__(self):
-        return str(self.__dict__)
-
-def _make_file_map(io_files, i_path):
-    a_dgp_path = os.path.normpath(i_path)
-    a_file = open(i_path, mode='rb')
-    a_data = struct.unpack('<2H', a_file.read(2 * 2))
-    a_num_archives = a_data[0]
-    if a_data[1] <= 9999:
-        a_file.seek(2)
-    for i in range(a_num_archives):
-        a_dgp_path = a_dgp_path[:-len('0000.dgp')] + '%04u.dgp' % (i + 1)
-        a_num_files = struct.unpack('<H', a_file.read(2))[0]
-        a_directory = _read_wchar_string(a_file)
-        a_file.read(1)
-        a_offset = struct.unpack('<L', a_file.read(4))[0]
-        for j in range(a_num_files):
-            a_name = _read_wchar_string(a_file)
-            a_data = struct.unpack('<LQ', a_file.read(4 + 8))
-            a_entry = io_files.get(a_name)
-            if a_entry is None or a_entry._time < a_data[1]:
-                a_entry = Entry()
-                a_entry._size = a_data[0]
-                a_entry._time = a_data[1]
-                a_entry._offset = a_offset
-                a_entry.dgp = a_dgp_path
-                io_files[a_name] = a_entry
-            a_offset += a_data[0]
-
-#------------------------------------------------------------------------------
-def _read_wchar_string(io_file):
+def _read_wchar_string(io_stream):
 
     # 文字列の長さを取得。
-    a_length = struct.unpack('<L', io_file.read(4))[0]
+    a_length = struct.unpack('<L', io_stream.read(4))[0]
     a_string = ''
     if 0 < a_length:
 
         # unicode文字列を変換。
         a_data = struct.unpack(
-            '<' + str(a_length) + 'H', io_file.read(a_length * 2))
+            '<' + str(a_length) + 'H', io_stream.read(a_length * 2))
         for a_char in a_data:
             a_string += chr(a_char)
 
@@ -256,16 +330,21 @@ def _table_ns(i_string):
 #  @return option値と引数listのtuple。
 def _parse_arguments(io_parser):
     io_parser.add_option(
-        '-b',
-        '--base',
-        dest='base_path',
-        help='set "Defense Grid: The Awakening" installed directory path name')
-    io_parser.add_option(
         '-c',
         '--captions',
         dest='captions_ods',
         default='DefenseGridCaptionMOD.ods',
         help='set captions ods-file path name')
+    io_parser.add_option(
+        '-i',
+        '--installed_dir',
+        dest='installed_dir',
+        help='set the directory path name "Defense Grid: The Awakening" is installed')
+    io_parser.add_option(
+        '-o',
+        '--out_dir',
+        dest='out_dir',
+        help='set output directory path name')
     return io_parser.parse_args()
 
 #------------------------------------------------------------------------------
