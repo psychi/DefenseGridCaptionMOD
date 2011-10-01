@@ -18,15 +18,12 @@ from optparse import OptionParser
 #------------------------------------------------------------------------------
 ## @brief main関数
 #  @param[in] i_options   option値。
-#  @param[in] i_arguments 引数list。
+#  @param[in] i_arguments 引数の配列。
 def _main(i_options, i_arguments):
 
     # option値の整合性を確かめる。
     _is_directory(i_options.input_dir)
-    _is_directory(i_options.output_dir)
-    if i_options.captions_ods:
-        _is_file(i_options.captions_ods)
-    else:
+    if not i_options.captions_ods:
         return False
 
     # "*0000.dgp"を読み込み、package書庫を作る。
@@ -34,46 +31,20 @@ def _main(i_options, i_arguments):
     for a_path in glob.iglob(os.path.join(i_options.input_dir, '*0000.dgp')):
         a_packages.read(a_path)
 
-    # ods-fileを読み込み、字幕書庫を作る。
-    a_captions = _build_caption_archive(i_options.captions_ods)
+    # 字幕ods-fileを元に、字幕を書き換える。
+    a_font_chars = _modify_captions(a_packages, i_options.captions_ods)
 
-    # 字幕contentsを書き換える。
-    a_chars = set()
-    for a_key, a_dict in a_captions.items():
-        a_path = a_key + '.txt'
-        a_contents = a_packages.get(a_path)
-        if a_contents is not None:
-            a_contents = _build_caption_contents(a_contents, a_dict, a_chars)
-            a_packages.set(a_path, a_contents)
+    # 更新したpackageをfileに出力。
+    a_packages.write(i_options.output_dir)
 
 #------------------------------------------------------------------------------
-## @brief command-line引数を解析。
-#  @return option値と引数listのtuple。
-def _parse_arguments(io_parser):
-    io_parser.add_option(
-        '-c',
-        '--captions',
-        dest='captions_ods',
-        help='set captions ods-file path name')
-    io_parser.add_option(
-        '-i',
-        '--input_dir',
-        dest='input_dir',
-        help='set the directory path name to input dgp-files')
-    io_parser.add_option(
-        '-o',
-        '--output_dir',
-        dest='output_dir',
-        help='set the directory path name to output dgp-files')
-    return io_parser.parse_args()
+## @brief 字幕を書き換える。
+#  @param[in,out] io_packages 字幕contentsを含むpackage書庫。
+#  @param[in] i_ods_path      読み込む字幕ods-fileのpath名。
+#  @return 字幕で使われた文字の一覧。
+def _modify_captions(io_packages, i_ods_path):
 
-#------------------------------------------------------------------------------
-## @brief ods-fileを読み込んで、字幕書庫を構築。
-#  @param[in] i_ods_path 読み込むods-fileのpath名。
-#  @return ods-fileから構築した字幕書庫。
-def _build_caption_archive(i_ods_path):
-
-    # ods-fileから'content.xml'を取り出す。
+    # 字幕ods-fileから'content.xml'を取り出す。
     a_zip = zipfile.ZipFile(i_ods_path, 'r')
     a_content = a_zip.read('content.xml')
     a_zip.close()
@@ -81,13 +52,22 @@ def _build_caption_archive(i_ods_path):
         xml.etree.ElementTree.fromstring(a_content.decode('utf-8')))
 
     # 'content.xml'からtable要素を取り出し、字幕辞書を作る。
-    a_captions = {}
     a_body = a_content.find(_ns0('body'))
     a_spreadsheet = a_body.find(_ns0('spreadsheet'))
+    a_caption_chars = set()
     for a_table in a_spreadsheet.findall(_table_ns('table')):
-        a_name = a_table.attrib.get(_table_ns('name'))
-        a_captions[a_name] = _build_caption_dict(a_table)
-    return a_captions
+        a_captions = _build_caption_dict(a_table)
+
+        # 字幕contentsを書き換える。
+        a_path = a_table.attrib.get(_table_ns('name')) + '.txt'
+        a_contents = io_packages.get(a_path)
+        if a_contents is not None:
+            a_contents = _build_caption_contents(
+                a_contents, a_captions, a_caption_chars)
+            if io_packages.set(a_path, a_contents) is None:
+                raise
+
+    return a_caption_chars
 
 #------------------------------------------------------------------------------
 def _build_caption_dict(i_table_xml):
@@ -115,7 +95,7 @@ def _get_table_cell_value(i_cell_xml):
 ## @brief 字幕文字列を書き換えた字幕contentsを作る。
 #  @param[in] i_contents   元となる字幕contents
 #  @param[in] i_captions   字幕辞書。
-#  @param[in,out] io_chars font文字辞書。
+#  @param[in,out] io_chars 字幕で使われた文字の一覧。
 def _build_caption_contents(i_contents, i_captions, io_chars):
 
     # 字幕conttentsから字幕line配列を取得し、字幕辞書を元に書き換える。
@@ -129,9 +109,9 @@ def _build_caption_contents(i_contents, i_captions, io_chars):
 
 #------------------------------------------------------------------------------
 ## @brief 字幕文字列を書き換えた字幕lineを作る。
-#  @param[in] i_line     元となる字幕line
-#  @param[in] i_captions 字幕辞書。
-#  @param[in] io_chars   font文字辞書。
+#  @param[in] i_line       元となる字幕line
+#  @param[in] i_captions   字幕辞書。
+#  @param[in,out] io_chars 字幕で使われた文字の一覧。
 def _build_caption_line(i_line, i_captions, io_chars):
 
     # 字幕lineから字幕名を取り出す。
@@ -143,7 +123,7 @@ def _build_caption_line(i_line, i_captions, io_chars):
             a_caption = i_captions.get(i_line[:i])
             if a_caption:
 
-                # 字幕文字列でfont文字辞書を更新。
+                # 文字一覧を更新。
                 for a_char in a_caption:
                     io_chars.add(a_char)
 
@@ -194,6 +174,27 @@ def _ns0(i_string):
 
 def _table_ns(i_string):
     return '{urn:oasis:names:tc:opendocument:xmlns:table:1.0}' + i_string
+
+#------------------------------------------------------------------------------
+## @brief command-line引数を解析。
+#  @return option値と引数listのtuple。
+def _parse_arguments(io_parser):
+    io_parser.add_option(
+        '-c',
+        '--captions',
+        dest='captions_ods',
+        help='set captions ods-file path name')
+    io_parser.add_option(
+        '-i',
+        '--input_dir',
+        dest='input_dir',
+        help='set the directory path name to input dgp-files')
+    io_parser.add_option(
+        '-o',
+        '--output_dir',
+        dest='output_dir',
+        help='set the directory path name to output dgp-files')
+    return io_parser.parse_args()
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 class PackageSection:
@@ -247,7 +248,6 @@ class PackageFile:
     def _read(self, i_path):
 
         # package-fileを開く。
-        _is_file(i_path)
         a_stream = open(i_path, mode='rb')
 
         # 文字列配列を読み込む。
@@ -319,6 +319,8 @@ class PackageArchive:
         self._clusters[a_cluster._path] = a_cluster
 
     #--------------------------------------------------------------------------
+    ## @brief 変更されたpackageをfileに出力する。
+    #  @param[in] i_output_dir package-fileを出力するdirectoryのpath名。
     def write(self, i_output_dir):
         _is_directory(i_output_dir)
 
@@ -331,6 +333,8 @@ class PackageArchive:
                             i_output_dir, 
                             os.path.basename(a_cluster._file_path(i))))
                     a_written = True
+
+            # contents部分をfileに出力したなら、catalog部分もfileに出力する。
             if a_written:
                 a_cluster._write_catalog()
 
@@ -339,21 +343,20 @@ class PackageArchive:
     #  @param[in] i_path contentsのpath名。
     def get(self, i_path):
 
-        # path名に対応するsectionを検索。
+        # path名に対応するsectionを検索し、contensを取得。
         a_target = self._sections.get(i_path)
         if a_target is not None:
             if a_target._contents is not None:
                 return a_target._contents
 
-            # sectionが空の場合は、package-fileを読み込む。
+            # contentsが空だったので、package-fileを読み込む。
             for a_cluster in self._clusters.values():
                 for i, a_file in enumerate(a_cluster._files):
                     for a_section in a_file._sections:
                         if a_section is a_target:
                             a_cluster._read(i)
                             return a_target._contents
-            else:
-                raise
+            raise
 
     #--------------------------------------------------------------------------
     ## @brief packageにcontentsを設定。
@@ -380,8 +383,8 @@ class PackageArchive:
                 raise
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
-if __name__ == "__main__":
+if __name__ == '__main__':
     a_option_parser = OptionParser()
     a_options, a_arguments = _parse_arguments(a_option_parser)
-    if _main(a_options, a_arguments) is not None:
+    if _main(a_options, a_arguments) is False:
         a_option_parser.print_help()
