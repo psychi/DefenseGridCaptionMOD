@@ -3,7 +3,7 @@
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 ## @file DefenseGridCaptionMOD.py
-#  @brief "Defense Grid: The Awakening" caption builder for Python 3.2 or later.
+#  @brief "Defense Grid: The Awakening" caption modifier for Python 3.2 or later.
 #  @date 2011.10.01
 import sys
 import os.path
@@ -56,19 +56,18 @@ def _modify_captions(io_packages, i_ods_path):
     # spreadsheetからtable要素を取り出し、字幕辞書を作る。
     a_caption_chars = set()
     for a_table in a_xml.findall(_table_ns('table')):
-        a_captions = _build_caption_dict(a_table, a_caption_chars)
-
-        # packageから字幕contentを取り出す。
         a_path = a_table.attrib.get(_table_ns('name')) + '.txt'
         a_content = io_packages.get(a_path)
         if a_content is not None:
+            a_captions = _build_caption_dict(a_table)
 
             # 字幕辞書を元に、字幕contentを書き換える。
             a_lines = a_content[3:].decode('utf-8').splitlines()
             a_content = a_content[:3]
             for a_line in a_lines:
                 if a_line and '#' != a_line[0]:
-                    a_line = _build_caption_line(a_line, a_captions)
+                    a_line = _build_caption_line(
+                        a_line, a_captions, a_caption_chars)
                 a_content += ''.join((a_line, '\r\n')).encode('utf-8')
             if io_packages.set(a_path, a_content) is None:
                 raise
@@ -77,9 +76,9 @@ def _modify_captions(io_packages, i_ods_path):
 
 #------------------------------------------------------------------------------
 ## @brief 字幕辞書を作る。
-#  @param[in] i_table_xml  字幕辞書の元となるXML。
-#  @param[in,out] io_chars 字幕で使われた文字の一覧。
-def _build_caption_dict(i_table_xml, io_chars):
+#  @param[in] i_table_xml 字幕辞書の元となるXML。
+#  @return 字幕辞書。
+def _build_caption_dict(i_table_xml):
     a_dict = {}
     for a_row in i_table_xml.findall(_table_ns('table-row'))[1:]:
         a_cells = a_row.findall(_table_ns('table-cell'))
@@ -89,10 +88,6 @@ def _build_caption_dict(i_table_xml, io_chars):
                 a_text = _get_table_cell_value(a_cells[2])
                 if a_text:
                     a_dict[a_key] = a_text
-
-                    # 文字一覧を更新。
-                    for a_char in a_text:
-                        io_chars.add(a_char)
     return a_dict
 
 #------------------------------------------------------------------------------
@@ -106,9 +101,10 @@ def _get_table_cell_value(i_cell_xml):
 
 #------------------------------------------------------------------------------
 ## @brief 字幕文字列を書き換えた字幕lineを作る。
-#  @param[in] i_line       元となる字幕line
-#  @param[in] i_captions   字幕辞書。
-def _build_caption_line(i_line, i_captions):
+#  @param[in] i_line               元となる字幕line
+#  @param[in] i_captions           字幕辞書。
+#  @param[in,out] io_caption_chars 字幕で使われた文字の一覧。
+def _build_caption_line(i_line, i_captions, io_caption_chars):
 
     # 字幕lineから字幕名を取り出す。
     i = 0
@@ -119,13 +115,17 @@ def _build_caption_line(i_line, i_captions):
             a_caption = i_captions.get(i_line[:i])
             if a_caption:
 
+                # 文字一覧を更新。
+                for a_char in a_caption:
+                    io_caption_chars.add(a_char)
+
                 # 字幕文字列を書き換えた字幕lineを出力。
                 for a_char in i_line[i:]:
                     if a_char.isspace():
                         i += 1
                     else:
                         break
-                return i_line[:i] + a_caption
+                return ''.join((i_line[:i], a_caption))
             break
         i += 1
     return i_line
@@ -148,6 +148,20 @@ def _read_wchar_string(io_stream):
             a_string += chr(a_char)
 
     return a_string
+
+#------------------------------------------------------------------------------
+## @brief 文字列をbytesに変換。
+#  @param[in] i_string      書きこむ文字列。
+def _convert_wchar_to_bytes(i_string):
+    a_bytes = struct.pack('<L', len(i_string))
+    for a_char in i_string:
+        a_bytes += struct.pack('<H', ord(a_char))
+    return a_bytes
+
+#------------------------------------------------------------------------------
+def _write_package_file(i_path, i_bytes):
+    open(i_path, mode='wb').write(i_bytes)
+    subprocess.check_call(('dgridhash.exe', '-a', '-o', i_path, i_path))
 
 #------------------------------------------------------------------------------
 def _is_directory(i_path):
@@ -209,7 +223,7 @@ class PackageFile:
         # 各種file属性を取得。
         a_num_sections = struct.unpack('<H', io_catalog.read(2))[0]
         self._tag = _read_wchar_string(io_catalog)
-        self._unknown = io_catalog.read(1)
+        self._unknown = io_catalog.read(1)[0]
         self._offset = struct.unpack('<L', io_catalog.read(4))[0]
 
         # sectionを構築。
@@ -226,6 +240,18 @@ class PackageFile:
             a_section = io_sections.get(a_path)
             if a_section is None or a_section._timestamp < a_data[1]:
                 io_sections[a_path] = self._sections[-1]
+
+    #--------------------------------------------------------------------------
+    ## @brief content目録をbinary化する。
+    def _build_catalog(self):
+        a_catalog = struct.pack('<H', len(self._sections))
+        a_catalog += _convert_wchar_to_bytes(self._tag)
+        a_catalog += struct.pack('<BL', self._unknown, self._offset)
+        for a_section in self._sections:
+            a_catalog += _convert_wchar_to_bytes(a_section._path)
+            a_catalog += struct.pack(
+                '<LQ', a_section._size, a_section._timestamp)
+        return a_catalog
 
     #--------------------------------------------------------------------------
     def _read(self, i_path):
@@ -245,6 +271,23 @@ class PackageFile:
         # section-contensを読み込む。
         for a_section in self._sections:
             a_section._content = a_stream.read(a_section._size)
+
+    #--------------------------------------------------------------------------
+    def _write(self, i_path):
+
+        # 文字列配列を書きこむ。
+        a_package = struct.pack('<L', len(self._strings))
+        for a_string in self._strings:
+            a_package += _convert_wchar_to_bytes(a_string)
+        #self._offset = len(a_package)
+
+        # contentを書きこむ。
+        for a_section in self._sections:
+            a_package += a_section._content
+            a_section._size = len(a_section._content)
+
+        # fileに出力。
+        _write_package_file(i_path, a_package)
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 class PackageCluster:
@@ -278,6 +321,23 @@ class PackageCluster:
     #--------------------------------------------------------------------------
     def _read(self, i_index):
         self._files[i_index]._read(self._file_path(i_index))
+
+    #--------------------------------------------------------------------------
+    def _write_catalog(self, i_output_dir):
+
+        # package-fileの数を書き込む。
+        a_package = struct.pack('<H', len(self._files))
+        if self._steam is not None:
+            a_package += struct.pack('<H', self._steam)
+
+        # content目録を書き込む。
+        for a_file in self._files:
+            a_package += a_file._build_catalog()
+
+        # fileに出力。
+        _write_package_file(
+            os.path.join(i_output_dir, os.path.basename(self._path)),
+            a_package)
 
     #--------------------------------------------------------------------------
     def _file_path(self, i_index):
@@ -317,7 +377,7 @@ class PackageArchive:
 
             # content部分をfileに出力したなら、catalog部分もfileに出力する。
             if a_written:
-                a_cluster._write_catalog()
+                a_cluster._write_catalog(i_output_dir)
 
     #--------------------------------------------------------------------------
     ## @brief packageからcontentを取得。
