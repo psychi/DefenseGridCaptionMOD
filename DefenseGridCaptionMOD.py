@@ -34,37 +34,37 @@ def _main(i_options, i_arguments):
     # 字幕ods-fileを元に、字幕を書き換える。
     a_font_chars = _modify_captions(a_packages, i_options.captions_ods)
 
-    # 更新したpackageをfileに出力。
+    # 書き換えたpackageをfileに出力。
     a_packages.write(i_options.output_dir)
 
 #------------------------------------------------------------------------------
 ## @brief 字幕を書き換える。
-#  @param[in,out] io_packages 字幕contentsを含むpackage書庫。
+#  @param[in,out] io_packages 字幕contentを含むpackage書庫。
 #  @param[in] i_ods_path      読み込む字幕ods-fileのpath名。
 #  @return 字幕で使われた文字の一覧。
 def _modify_captions(io_packages, i_ods_path):
 
-    # 字幕ods-fileから'content.xml'を取り出す。
+    # 字幕ods-fileからspreadsheetを取り出す。
     a_zip = zipfile.ZipFile(i_ods_path, 'r')
-    a_content = a_zip.read('content.xml')
+    a_xml = a_zip.read('content.xml')
     a_zip.close()
-    a_content = xml.etree.ElementTree.ElementTree(
-        xml.etree.ElementTree.fromstring(a_content.decode('utf-8')))
+    a_xml = xml.etree.ElementTree.ElementTree(
+        xml.etree.ElementTree.fromstring(a_xml.decode('utf-8')))
+    a_xml = a_xml.find(_ns0('body'))
+    a_xml = a_xml.find(_ns0('spreadsheet'))
 
-    # 'content.xml'からtable要素を取り出し、字幕辞書を作る。
-    a_body = a_content.find(_ns0('body'))
-    a_spreadsheet = a_body.find(_ns0('spreadsheet'))
+    # spreadsheetからtable要素を取り出し、字幕辞書を作る。
     a_caption_chars = set()
-    for a_table in a_spreadsheet.findall(_table_ns('table')):
+    for a_table in a_xml.findall(_table_ns('table')):
         a_captions = _build_caption_dict(a_table)
 
-        # 字幕contentsを書き換える。
+        # 字幕辞書を元に、字幕contentを書き換える。
         a_path = a_table.attrib.get(_table_ns('name')) + '.txt'
-        a_contents = io_packages.get(a_path)
-        if a_contents is not None:
-            a_contents = _build_caption_contents(
-                a_contents, a_captions, a_caption_chars)
-            if io_packages.set(a_path, a_contents) is None:
+        a_content = io_packages.get(a_path)
+        if a_content is not None:
+            a_content = _build_caption_content(
+                a_content, a_captions, a_caption_chars)
+            if io_packages.set(a_path, a_content) is None:
                 raise
 
     return a_caption_chars
@@ -92,20 +92,20 @@ def _get_table_cell_value(i_cell_xml):
             return a_value.text
 
 #------------------------------------------------------------------------------
-## @brief 字幕文字列を書き換えた字幕contentsを作る。
-#  @param[in] i_contents   元となる字幕contents
+## @brief 字幕文字列を書き換えた字幕contentを作る。
+#  @param[in] i_content    元となる字幕content
 #  @param[in] i_captions   字幕辞書。
 #  @param[in,out] io_chars 字幕で使われた文字の一覧。
-def _build_caption_contents(i_contents, i_captions, io_chars):
+def _build_caption_content(i_content, i_captions, io_chars):
 
-    # 字幕conttentsから字幕line配列を取得し、字幕辞書を元に書き換える。
-    a_lines = i_contents[3:].decode('utf-8').splitlines()
+    # 字幕contentから字幕line配列を取得し、字幕辞書を元に書き換える。
+    a_lines = i_content[3:].decode('utf-8').splitlines()
     for i, a_line in enumerate(a_lines):
         if a_line and '#' != a_line[0]:
             a_lines[i] = _build_caption_line(a_line, i_captions, io_chars)
 
-    # 字幕line配列から字幕contentsを構築。
-    return i_contents # 未実装なので、そのまま戻す。
+    # 字幕line配列から字幕contentを構築。
+    return i_content # 未実装なので、そのまま戻す。
 
 #------------------------------------------------------------------------------
 ## @brief 字幕文字列を書き換えた字幕lineを作る。
@@ -163,11 +163,6 @@ def _is_directory(i_path):
         raise Exception(
             ''.join(('"', i_path, '"は、ディレクトリではありません。')))
 
-def _is_file(i_path):
-    if not os.path.isfile(i_path):
-        raise Exception(
-            ''.join(('"', i_path, '"は、ファイルではありません。')))
-
 #------------------------------------------------------------------------------
 def _ns0(i_string):
     return '{urn:oasis:names:tc:opendocument:xmlns:office:1.0}' + i_string
@@ -206,12 +201,8 @@ class PackageSection:
     def __init__(self, i_path, i_size, i_timestamp):
         self._path = i_path
         self._size = i_size
-        self._contents = None
+        self._content = None
         self._timestamp = i_timestamp
-
-    #--------------------------------------------------------------------------
-    def __str__(self):
-        return str(self.__dict__)
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 class PackageFile:
@@ -261,11 +252,7 @@ class PackageFile:
 
         # section-contensを読み込む。
         for a_section in self._sections:
-            a_section._contents = a_stream.read(a_section._size)
-
-    #--------------------------------------------------------------------------
-    def __str__(self):
-        return str(self.__dict__)
+            a_section._content = a_stream.read(a_section._size)
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 class PackageCluster:
@@ -314,6 +301,8 @@ class PackageArchive:
         self._sections = dict()
 
     #--------------------------------------------------------------------------
+    ## @brief package-fileを読み込んで、package書庫に追加する。
+    #  @param[in] i_path 読み込むpackage-fileのpath名。
     def read(self, i_path):
         a_cluster = PackageCluster(self._sections, i_path)
         self._clusters[a_cluster._path] = a_cluster
@@ -334,36 +323,36 @@ class PackageArchive:
                             os.path.basename(a_cluster._file_path(i))))
                     a_written = True
 
-            # contents部分をfileに出力したなら、catalog部分もfileに出力する。
+            # content部分をfileに出力したなら、catalog部分もfileに出力する。
             if a_written:
                 a_cluster._write_catalog()
 
     #--------------------------------------------------------------------------
-    ## @brief packageからcontentsを取得。
-    #  @param[in] i_path contentsのpath名。
+    ## @brief packageからcontentを取得。
+    #  @param[in] i_path contentのpath名。
     def get(self, i_path):
 
         # path名に対応するsectionを検索し、contensを取得。
         a_target = self._sections.get(i_path)
         if a_target is not None:
-            if a_target._contents is not None:
-                return a_target._contents
+            if a_target._content is not None:
+                return a_target._content
 
-            # contentsが空だったので、package-fileを読み込む。
+            # contentが空だったので、package-fileを読み込む。
             for a_cluster in self._clusters.values():
                 for i, a_file in enumerate(a_cluster._files):
                     for a_section in a_file._sections:
                         if a_section is a_target:
                             a_cluster._read(i)
-                            return a_target._contents
+                            return a_target._content
             raise
 
     #--------------------------------------------------------------------------
-    ## @brief packageにcontentsを設定。
-    #  @param[in] i_path     sectionのpath名。
-    #  @param[in] i_contents contentsとして設定するbytes-object。
-    def set(self, i_path, i_contents):
-        if not isinstance(i_contents, bytes):
+    ## @brief packageにcontentを設定。
+    #  @param[in] i_path    sectionのpath名。
+    #  @param[in] i_content contentとして設定するbytes-object。
+    def set(self, i_path, i_content):
+        if not isinstance(i_content, bytes):
             raise
 
         # path名に対応するsectionを検索。
@@ -373,12 +362,12 @@ class PackageArchive:
                 for a_file in a_cluster._files:
                     for a_section in a_file._sections:
                         if a_section is a_target:
-                            if a_section._contents is not i_contents:
-                                a_section._contents = i_contents
+                            if a_section._content is i_content:
+                                return False
+                            else:
+                                a_section._content = i_content
                                 a_file._modified = True
                                 return True
-                            else:
-                                return False
             else:
                 raise
 
