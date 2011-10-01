@@ -36,7 +36,8 @@ def _main(i_options, i_arguments):
     a_font_chars = _modify_caption(a_packages, i_options.captions_ods)
 
     # fontを書き換える。
-    _modify_font(a_packages, i_options.output_dir, 'ui\\gfxfontlib.gfx')
+    _modify_font(
+        a_packages, i_options.output_dir, 'ui\\gfxfontlib.gfx', a_font_chars)
 
     # 書き換えたpackageをfileに出力。
     a_packages.write(i_options.output_dir)
@@ -135,17 +136,65 @@ def _build_caption_line(i_line, i_captions, io_caption_chars):
     return i_line
 
 #------------------------------------------------------------------------------
-def _modify_font(io_packages, i_output_dir, i_gfx_path):
+def _modify_font(io_packages, i_output_dir, i_gfx_path, i_font_chars):
     a_content = io_packages.get(i_gfx_path)
     if a_content is None or len(a_content) < 3:
         raise
-    a_signature = a_content[:3]
+    #a_signature = a_content[:3]
+
+    # ttf-fileをxml-fileに変換。
+    a_import_font_path = _make_import_font('ImportFonts.xml', i_font_chars)
+    raise
 
     # gfx-fileを出力。
     a_gfx_path = os.path.basename(i_gfx_path)
-    a_decompress = True
-    if a_decompress:
-        a_content = b'FWS' + a_content[3: 8] + zlib.decompress(a_content[8:])
+    print(''.join(('writing "', a_gfx_path, '"')))
+    _write_font_gfx(a_gfx_path, a_content, True)
+
+    # gfx-fileをxml-fileに変換。
+    a_xml_path = a_gfx_path + '.xml'
+    print(''.join(('writing "', a_xml_path, '"')))
+    subprocess.check_call(('swfmill.exe', 'swf2xml', a_gfx_path, a_xml_path))
+
+    # gfx-xml-fileとttf-xml-fileを合成。
+
+    # 合成したxml-fileをswf-fileに変換。
+    a_swf_path = a_gfx_path + '.swf'
+    print(''.join(('writing "', a_swf_path, '"')))
+    subprocess.check_call(('swfmill.exe', 'xml2swf', a_xml_path, a_swf_path))
+    a_content = open(a_swf_path, mode='rb').read()
+    io_packages.set(i_gfx_path, a_content)
+
+#------------------------------------------------------------------------------
+def _make_import_font(i_path, i_font_chars):
+    a_latin_chars = ''.join((
+        ' !"#$%&\'()*+,-./0123456789:;<=>?@',
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'))
+    a_font_chars = i_font_chars
+    for a_char in a_latin_chars:
+        a_font_chars.discard(a_char)
+    a_font_chars = ''.join(sorted(a_font_chars))
+
+    a_template = xml.etree.ElementTree.ElementTree(
+        file=open(i_path, mode='r', encoding='utf-8'))
+    for a_font in a_template.getroot().findall('.//font'):
+        a_font.set('glyphs', a_font_chars)
+    a_xml_path = i_path + '.xml'
+    xml.etree.ElementTree.ElementTree(a_template.getroot()).write(
+        a_xml_path, encoding='utf-8', method='xml', xml_declaration=True)
+
+    a_swf_path = i_path + '.swf'
+    subprocess.check_call(('swfmill.exe', 'simple', a_xml_path, a_swf_path))
+    a_swf_xml_path = a_swf_path + '.xml'
+    subprocess.check_call(('swfmill.exe', 'swf2xml', a_swf_path, a_swf_xml_path))
+    return a_swf_xml_path
+
+#------------------------------------------------------------------------------
+def _write_font_gfx(i_path, i_content, i_decompress):
+    a_unknown_begin = None
+    a_unknown_tags = None
+    if i_decompress:
+        a_content = b'FWS' + i_content[3: 8] + zlib.decompress(i_content[8:])
 
         # SWF8以降は、必ずFileAttributes-tagから始まる。
         # その間は、未知のtagとして保存しておく。
@@ -162,21 +211,10 @@ def _modify_font(io_packages, i_output_dir, i_gfx_path):
                 raise
             a_unknown_tags = a_content[a_unknown_begin: a_unknown_end]
     else:
-        a_content = b'CWS' + a_content[3:]
-    print(''.join(('writing "', a_gfx_path, '"')))
-    open(a_gfx_path, mode='wb').write(a_content)
+        a_content = b'CWS' + i_content[3:]
 
-    # gfx-fileをxml-fileに変換。
-    a_xml_path = a_gfx_path[:-3] + 'xml'
-    print(''.join(('writing "', a_xml_path, '"')))
-    subprocess.check_call(('swfmill.exe', 'swf2xml', a_gfx_path, a_xml_path))
-
-    # xml-fileをswf-fileに変換。
-    a_swf_path = a_gfx_path[:-3] + 'swf'
-    print(''.join(('writing "', a_swf_path, '"')))
-    subprocess.check_call(('swfmill.exe', 'xml2swf', a_xml_path, a_swf_path))
-    a_content = open(a_swf_path, mode='rb').read()
-    io_packages.set(i_gfx_path, a_signature + a_content[3:])
+    open(i_path, mode='wb').write(a_content)
+    return a_unknown_begin, a_unknown_tags
 
 #------------------------------------------------------------------------------
 ## @brief streamからwchar文字列を取り出す。
