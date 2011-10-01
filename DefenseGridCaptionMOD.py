@@ -56,21 +56,30 @@ def _modify_captions(io_packages, i_ods_path):
     # spreadsheetからtable要素を取り出し、字幕辞書を作る。
     a_caption_chars = set()
     for a_table in a_xml.findall(_table_ns('table')):
-        a_captions = _build_caption_dict(a_table)
+        a_captions = _build_caption_dict(a_table, a_caption_chars)
 
-        # 字幕辞書を元に、字幕contentを書き換える。
+        # packageから字幕contentを取り出す。
         a_path = a_table.attrib.get(_table_ns('name')) + '.txt'
         a_content = io_packages.get(a_path)
         if a_content is not None:
-            a_content = _build_caption_content(
-                a_content, a_captions, a_caption_chars)
+
+            # 字幕辞書を元に、字幕contentを書き換える。
+            a_lines = a_content[3:].decode('utf-8').splitlines()
+            a_content = a_content[:3]
+            for a_line in a_lines:
+                if a_line and '#' != a_line[0]:
+                    a_line = _build_caption_line(a_line, a_captions)
+                a_content += ''.join((a_line, '\r\n')).encode('utf-8')
             if io_packages.set(a_path, a_content) is None:
                 raise
 
     return a_caption_chars
 
 #------------------------------------------------------------------------------
-def _build_caption_dict(i_table_xml):
+## @brief 字幕辞書を作る。
+#  @param[in] i_table_xml  字幕辞書の元となるXML。
+#  @param[in,out] io_chars 字幕で使われた文字の一覧。
+def _build_caption_dict(i_table_xml, io_chars):
     a_dict = {}
     for a_row in i_table_xml.findall(_table_ns('table-row'))[1:]:
         a_cells = a_row.findall(_table_ns('table-cell'))
@@ -80,6 +89,10 @@ def _build_caption_dict(i_table_xml):
                 a_text = _get_table_cell_value(a_cells[2])
                 if a_text:
                     a_dict[a_key] = a_text
+
+                    # 文字一覧を更新。
+                    for a_char in a_text:
+                        io_chars.add(a_char)
     return a_dict
 
 #------------------------------------------------------------------------------
@@ -92,27 +105,10 @@ def _get_table_cell_value(i_cell_xml):
             return a_value.text
 
 #------------------------------------------------------------------------------
-## @brief 字幕文字列を書き換えた字幕contentを作る。
-#  @param[in] i_content    元となる字幕content
-#  @param[in] i_captions   字幕辞書。
-#  @param[in,out] io_chars 字幕で使われた文字の一覧。
-def _build_caption_content(i_content, i_captions, io_chars):
-
-    # 字幕contentから字幕line配列を取得し、字幕辞書を元に書き換える。
-    a_lines = i_content[3:].decode('utf-8').splitlines()
-    for i, a_line in enumerate(a_lines):
-        if a_line and '#' != a_line[0]:
-            a_lines[i] = _build_caption_line(a_line, i_captions, io_chars)
-
-    # 字幕line配列から字幕contentを構築。
-    return i_content # 未実装なので、そのまま戻す。
-
-#------------------------------------------------------------------------------
 ## @brief 字幕文字列を書き換えた字幕lineを作る。
 #  @param[in] i_line       元となる字幕line
 #  @param[in] i_captions   字幕辞書。
-#  @param[in,out] io_chars 字幕で使われた文字の一覧。
-def _build_caption_line(i_line, i_captions, io_chars):
+def _build_caption_line(i_line, i_captions):
 
     # 字幕lineから字幕名を取り出す。
     i = 0
@@ -123,17 +119,13 @@ def _build_caption_line(i_line, i_captions, io_chars):
             a_caption = i_captions.get(i_line[:i])
             if a_caption:
 
-                # 文字一覧を更新。
-                for a_char in a_caption:
-                    io_chars.add(a_char)
-
                 # 字幕文字列を書き換えた字幕lineを出力。
                 for a_char in i_line[i:]:
                     if a_char.isspace():
                         i += 1
                     else:
                         break
-                return i_line[:i] + a_caption + '\n'
+                return i_line[:i] + a_caption
             break
         i += 1
     return i_line
