@@ -8,6 +8,7 @@
 import sys
 import os.path
 import subprocess
+import zlib
 import zipfile
 import glob
 import struct
@@ -32,7 +33,10 @@ def _main(i_options, i_arguments):
         a_packages.read(a_path)
 
     # 字幕ods-fileを元に、字幕を書き換える。
-    a_font_chars = _modify_captions(a_packages, i_options.captions_ods)
+    a_font_chars = _modify_caption(a_packages, i_options.captions_ods)
+
+    # fontを書き換える。
+    _modify_font(a_packages, i_options.output_dir, 'ui\\gfxfontlib.gfx')
 
     # 書き換えたpackageをfileに出力。
     a_packages.write(i_options.output_dir)
@@ -42,7 +46,7 @@ def _main(i_options, i_arguments):
 #  @param[in,out] io_packages 字幕contentを含むpackage書庫。
 #  @param[in] i_ods_path      読み込む字幕ods-fileのpath名。
 #  @return 字幕で使われた文字の一覧。
-def _modify_captions(io_packages, i_ods_path):
+def _modify_caption(io_packages, i_ods_path):
 
     # 字幕ods-fileからspreadsheetを取り出す。
     a_zip = zipfile.ZipFile(i_ods_path, 'r')
@@ -129,6 +133,50 @@ def _build_caption_line(i_line, i_captions, io_caption_chars):
             break
         i += 1
     return i_line
+
+#------------------------------------------------------------------------------
+def _modify_font(io_packages, i_output_dir, i_gfx_path):
+    a_content = io_packages.get(i_gfx_path)
+    if a_content is None or len(a_content) < 3:
+        raise
+    a_signature = a_content[:3]
+
+    # gfx-fileを出力。
+    a_gfx_path = os.path.basename(i_gfx_path)
+    a_decompress = True
+    if a_decompress:
+        a_content = b'FWS' + a_content[3: 8] + zlib.decompress(a_content[8:])
+
+        # SWF8以降は、必ずFileAttributes-tagから始まる。
+        # その間は、未知のtagとして保存しておく。
+        if 8 <= a_content[4]:
+            a_unknown_begin = 8 + (((5 + (a_content[8] >> 3) * 4) + 7) // 8) + 2 + 2
+            a_unknown_end = a_unknown_begin
+            while a_unknown_end < len(a_content):
+                a_tag = a_content[a_unknown_end] | (a_content[a_unknown_end + 1] << 8)
+                if (a_tag >> 6) != 69:
+                    a_unknown_end += 2 + (a_tag & 0x3f)
+                else:
+                    break;
+            else:
+                raise
+            a_unknown_tags = a_content[a_unknown_begin: a_unknown_end]
+    else:
+        a_content = b'CWS' + a_content[3:]
+    print(''.join(('writing "', a_gfx_path, '"')))
+    open(a_gfx_path, mode='wb').write(a_content)
+
+    # gfx-fileをxml-fileに変換。
+    a_xml_path = a_gfx_path[:-3] + 'xml'
+    print(''.join(('writing "', a_xml_path, '"')))
+    subprocess.check_call(('swfmill.exe', 'swf2xml', a_gfx_path, a_xml_path))
+
+    # xml-fileをswf-fileに変換。
+    a_swf_path = a_gfx_path[:-3] + 'swf'
+    print(''.join(('writing "', a_swf_path, '"')))
+    subprocess.check_call(('swfmill.exe', 'xml2swf', a_xml_path, a_swf_path))
+    a_content = open(a_swf_path, mode='rb').read()
+    io_packages.set(i_gfx_path, a_signature + a_content[3:])
 
 #------------------------------------------------------------------------------
 ## @brief streamからwchar文字列を取り出す。
