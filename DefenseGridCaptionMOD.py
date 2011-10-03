@@ -4,7 +4,7 @@
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
 ## @file DefenseGridCaptionMOD.py
 #  @brief "Defense Grid: The Awakening" caption modifier for Python 3.2 or later.
-#  @date 2011.10.01
+#  @date 2011.10.03
 import sys
 import os.path
 import subprocess
@@ -61,17 +61,17 @@ def _modify_captions(io_packages, i_ods_path):
     # spreadsheetからtable要素を取り出し、字幕辞書を作る。
     a_caption_chars = set()
     for a_table in a_xml.findall(_table_ns('table')):
-        a_path = a_table.attrib.get(_table_ns('name')) + '.txt'
+        a_path = a_table.get(_table_ns('name')) + '.txt'
         a_content = io_packages.get(a_path)
         if a_content is not None:
-            a_captions = _build_caption_dict(a_table)
+            a_captions = _make_caption_dict(a_table)
 
             # 字幕辞書を元に、字幕contentを書き換える。
             a_lines = a_content[3:].decode('utf-8').splitlines()
             a_content = a_content[:3]
             for a_line in a_lines:
                 if a_line and '#' != a_line[0]:
-                    a_line = _build_caption_line(
+                    a_line = _make_caption_line(
                         a_line, a_captions, a_caption_chars)
                 a_content += ''.join((a_line, '\r\n')).encode('utf-8')
             if io_packages.set(a_path, a_content) is None:
@@ -83,7 +83,7 @@ def _modify_captions(io_packages, i_ods_path):
 ## @brief 字幕辞書を作る。
 #  @param[in] i_table_xml 字幕辞書の元となるXML。
 #  @return 字幕辞書。
-def _build_caption_dict(i_table_xml):
+def _make_caption_dict(i_table_xml):
     a_dict = {}
     for a_row in i_table_xml.findall(_table_ns('table-row'))[1:]:
         a_cells = a_row.findall(_table_ns('table-cell'))
@@ -97,7 +97,7 @@ def _build_caption_dict(i_table_xml):
 
 #------------------------------------------------------------------------------
 def _get_table_cell_value(i_cell_xml):
-    a_type = i_cell_xml.attrib.get(_ns0('value-type'))
+    a_type = i_cell_xml.get(_ns0('value-type'))
     if 'string' == a_type:
         a_value = i_cell_xml.find(
             '{urn:oasis:names:tc:opendocument:xmlns:text:1.0}p')
@@ -109,7 +109,7 @@ def _get_table_cell_value(i_cell_xml):
 #  @param[in] i_line               元となる字幕line
 #  @param[in] i_captions           字幕辞書。
 #  @param[in,out] io_caption_chars 字幕で使われた文字の一覧。
-def _build_caption_line(i_line, i_captions, io_caption_chars):
+def _make_caption_line(i_line, i_captions, io_caption_chars):
 
     # 字幕lineから字幕名を取り出す。
     i = 0
@@ -158,7 +158,9 @@ def _modify_fonts(io_packages, i_gfx_path, i_import_fonts_path, i_font_chars):
 
     # gfx-xml-fileとttf-xml-fileを合成。
     a_import_fonts_path = i_import_fonts_path + '.swf.xml'
-    _merge_fonts(a_gfx_xml_path, a_import_fonts_path)
+    print(''.join(('writing "', a_gfx_xml_path, '"')))
+    _merge_fonts_xml(a_gfx_xml_path, a_import_fonts_path)
+    raise
 
     # 合成したxml-fileをswf-fileに変換。
     a_swf_path = a_gfx_path + '.swf'
@@ -168,44 +170,108 @@ def _modify_fonts(io_packages, i_gfx_path, i_import_fonts_path, i_font_chars):
     io_packages.set(i_gfx_path, a_content)
 
     # 後始末。
-    os.remove(a_import_fonts_path)
-    os.remove(a_gfx_path)
-    os.remove(a_gfx_xml_path)
-    os.remove(a_swf_path)
+    #os.remove(a_import_fonts_path)
+    #os.remove(a_gfx_path)
+    #os.remove(a_gfx_xml_path)
+    #os.remove(a_swf_path)
 
 #------------------------------------------------------------------------------
-def _merge_fonts(i_gfx_xml_path, i_ttf_xml_path):
+def _merge_fonts_xml(i_base_xml_path, i_import_xml_path):
 
-    # 元となるgfx-font辞書を作る。
-    a_gfx_xml = xml.etree.ElementTree.ElementTree(
-        file=open(i_gfx_xml_path, mode='r', encoding='utf-8'))
-    a_gfx_fonts = _build_font_dict(a_gfx_xml)
+    # base-font辞書とimport-font辞書を作る。
+    a_base_xml = xml.etree.ElementTree.ElementTree(
+        file=open(i_base_xml_path, mode='r', encoding='utf-8'))
+    a_base_fonts = _make_font_dict(a_base_xml)
+    a_import_fonts = _make_font_dict(
+        xml.etree.ElementTree.ElementTree(
+            file=open(i_import_xml_path, mode='r', encoding='utf-8')))
 
-    # 合成するttf-font辞書を作る。
-    a_ttf_xml = xml.etree.ElementTree.ElementTree(
-        file=open(i_ttf_xml_path, mode='r', encoding='utf-8'))
-    a_ttf_fonts = _build_font_dict(a_ttf_xml)
+    # base-fontにimport-fontを合成する。
+    for a_key, a_base_font in a_base_fonts.items():
+        a_import_font = a_import_fonts.get(a_key)
+        if a_import_font is not None:
+            _merge_font(a_base_font, a_import_font)
 
-    # gfx-fontとttf-fontを合成する。
-    for a_key, a_gfx_font in a_gfx_fonts.items():
-        a_ttf_font = a_ttf_fonts.get(a_key)
-    raise
+    # base-fontをxml-fileに出力。
+    a_base_xml.write(
+        i_base_xml_path, encoding='utf-8', method='xml', xml_declaration=True)
 
 #------------------------------------------------------------------------------
-def _build_font_dict(i_xml):
+def _merge_font(io_base_font, i_import_font):
+
+    # base-fontから字形を取得。
+    a_base_bounds = io_base_font.find('bounds')
+    a_base_advance = io_base_font.find('advance')
+    a_base_advance_list = a_base_advance.findall('Short')
+    a_base_glyphs = io_base_font.find('glyphs')
+    a_base_glyph_list = a_base_glyphs.findall('Glyph')
+    if len(a_base_advance_list) != len(a_base_advance_list):
+        raise
+
+    # base-glyphのmap属性をkeyとするindex番号辞書を作る。
+    a_base_map = {}
+    for i, a_glyph in enumerate(a_base_glyph_list):
+        a_base_map[a_glyph['map']] = i
+
+    # import-fontから字形を取得。
+    a_import_advance_list = i_import_font.find('advance').findall('Short')
+    a_import_glyph_list = i_import_font.find('glyphs').findall('Glyph')
+    if len(a_import_advance_list) != len(a_import_glyph_list):
+        raise
+
+    # base-fontにimport-fontを合成する。
+    for i, a_import_glyph in enumerate(a_import_glyph_list):
+        a_import_advance = a_import_advance_list[i]
+        a_base_index = a_base_map.get(a_import_glyph.get('map'))
+        if a_base_index is None:
+            # base-fontに新しく字形を追加する。
+            a_base_glyphs.append(a_import_glyph)
+            a_base_advance.append(a_import_advance)
+            xmll.etree.ElementTree.SubElement(
+                a_base_bounds,
+                'Rectangle',
+                {'left': 0, 'right': 0, 'top': 0, 'bottom': 0})
+        else:
+            # 字形が空ならば、書き換える。
+            a_base_glyph = a_base_glyph_list[a_base_index]
+            if _is_empty_glyph(a_base_glyph):
+                a_base_glyph.remove(a_base_glyph.find('GlyphShape'))
+                a_base_glyph.append(a_import_glyph.find('GlyphShape'))
+                a_base_advance_list[a_base_index].set(
+                    'value', a_import_advance.get('value'))
+
+#------------------------------------------------------------------------------
+def _is_empty_glyph(i_glyph):
+    a_shape = i_glyph.find('GlyphShape')
+    if a_shape is not None:
+        a_edges = a_shape.find('edges')
+        if a_edges is not None:
+            a_edges = a_edges.getchildren()
+            raise
+            return 8 == len(a_edges)
+    return False
+
+#------------------------------------------------------------------------------
+def _make_font_dict(i_xml):
     a_element = i_xml.getroot().find('Header')
     if a_element is not None:
         a_element = a_element.find('tags')
         if a_element is not None:
+
+            # import-fontの場合はFrameLabel-tagのlabel属性を、
+            # gfx-fontの場合はDefineFont3-tagのname属性を、
+            # 辞書のkeyとして使う。
             a_fonts =  a_element.findall('DefineFont3')
             a_labels = a_element.findall('FrameLabel')
             a_font_dict = {}
             if a_labels:
-                for i in range(len(a_fonts)):
-                    a_font_dict[a_labels[i].attrib['label']] = a_fonts[i]
+                if len(a_fonts) != len(a_labels):
+                    raise
+                for i, a_font in enumerate(a_fonts):
+                    a_font_dict[a_labels[i].get('label')] = a_font
             else:
                 for a_font in a_fonts:
-                    a_font_dict[a_font.attrib['name']] = a_font
+                    a_font_dict[a_font.get('name')] = a_font
             return a_font_dict
 
 #------------------------------------------------------------------------------
@@ -325,11 +391,13 @@ def _parse_arguments(io_parser):
         '-i',
         '--input_dir',
         dest='input_dir',
+        default='.',
         help='set the directory path name to input dgp-files')
     io_parser.add_option(
         '-o',
         '--output_dir',
         dest='output_dir',
+        default='.',
         help='set the directory path name to output dgp-files')
     return io_parser.parse_args()
 
@@ -379,7 +447,7 @@ class PackageFile:
 
     #--------------------------------------------------------------------------
     ## @brief content目録をbinary化する。
-    def _build_catalog(self):
+    def _make_catalog(self):
         a_catalog = struct.pack('<H', len(self._sections))
         a_catalog += _convert_wchar_to_bytes(self._tag)
         a_catalog += struct.pack('<BL', self._unknown, self._offset)
@@ -468,7 +536,7 @@ class PackageCluster:
 
         # content目録を書き込む。
         for a_file in self._files:
-            a_package += a_file._build_catalog()
+            a_package += a_file._make_catalog()
 
         # fileに出力。
         _write_package_file(
