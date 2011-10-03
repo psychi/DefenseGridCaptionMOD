@@ -13,7 +13,6 @@ import zipfile
 import glob
 import struct
 import xml.etree.ElementTree
-import copy
 from optparse import OptionParser
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
@@ -36,9 +35,13 @@ def _main(i_options, i_arguments):
     # 字幕ods-fileを元に、字幕を書き換える。
     a_font_chars = _modify_captions(a_packages, i_options.captions_ods)
 
-    # fontを書き換える。
-    _modify_fonts(
-        a_packages, 'ui\\gfxfontlib.gfx', 'ImportFonts.xml', a_font_chars)
+    # fontを書き換える
+    if i_options.import_fonts:
+        _modify_fonts(
+            a_packages, 
+            'ui\\gfxfontlib.gfx',
+            i_options.import_fonts,
+            a_font_chars)
 
     # 書き換えたpackageをfileに出力。
     a_packages.write(i_options.output_dir)
@@ -394,6 +397,11 @@ def _parse_arguments(io_parser):
         '--captions',
         dest='captions_ods',
         help='set captions ods-file path name')
+    io_parser.add_option(
+        '-f',
+        '--fonts',
+        dest='import_fonts',
+        help='set import fonts xml-file path name')
     io_parser.add_option(
         '-i',
         '--input_dir',
