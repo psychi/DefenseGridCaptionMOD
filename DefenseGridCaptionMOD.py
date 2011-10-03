@@ -152,21 +152,20 @@ def _modify_fonts(io_packages, i_gfx_path, i_import_fonts_path, i_font_chars):
 
     # gfx-fileを出力。
     a_gfx_path = os.path.basename(i_gfx_path)
-    print(''.join(('writing "', a_gfx_path, '"')))
     _make_gfx(a_gfx_path, a_content, True)
 
     # gfx-fileをxml-fileに変換。
     a_gfx_xml_path = a_gfx_path + '.xml'
-    print(''.join(('writing "', a_gfx_xml_path, '"')))
-    subprocess.check_call(('swfmill.exe', 'swf2xml', a_gfx_path, a_gfx_xml_path))
+    subprocess.check_call((
+        'swfmill.exe', '-v', 'swf2xml', a_gfx_path, a_gfx_xml_path))
 
     # gfx-xml-fileとttf-xml-fileを合成。
     a_gfx_xml_xml_path = _merge_fonts_xml(a_gfx_xml_path, a_import_fonts_path)
 
     # 合成したxml-fileをswf-fileに変換。
     a_swf_path = a_gfx_path + '.swf'
-    print(''.join(('writing "', a_swf_path, '"')))
-    subprocess.check_call(('swfmill.exe', 'xml2swf', a_gfx_xml_xml_path, a_swf_path))
+    subprocess.check_call((
+        'swfmill.exe', '-v', 'xml2swf', a_gfx_xml_xml_path, a_swf_path))
     a_content = open(a_swf_path, mode='rb').read()
     io_packages.set(i_gfx_path, a_content)
 
@@ -247,17 +246,6 @@ def _merge_font(io_base_font, i_import_font):
                 'value', a_import_advance.get('value'))
 
 #------------------------------------------------------------------------------
-def _is_empty_glyph(i_glyph):
-    a_shape = i_glyph.find('GlyphShape')
-    if a_shape is not None:
-        a_edges = a_shape.find('edges')
-        if a_edges is not None:
-            a_edges = a_edges.getchildren()
-            raise
-            return 8 == len(a_edges)
-    return False
-
-#------------------------------------------------------------------------------
 def _make_font_dict(i_xml):
     a_element = i_xml.getroot().find('Header')
     if a_element is not None:
@@ -307,9 +295,11 @@ def _make_import_fonts(i_xml_path, i_font_chars):
 
     # font-import-xml-fileからswf-fileを作り、それをxml-fileに変換する。
     a_swf_path = i_xml_path + '.swf'
-    subprocess.check_call(('swfmill.exe', 'simple', a_xml_path, a_swf_path))
+    subprocess.check_call((
+        'swfmill.exe', '-v', 'simple', a_xml_path, a_swf_path))
     a_swf_xml_path = a_swf_path + '.xml'
-    subprocess.check_call(('swfmill.exe', 'swf2xml', a_swf_path, a_swf_xml_path))
+    subprocess.check_call((
+        'swfmill.exe', '-v', 'swf2xml', a_swf_path, a_swf_xml_path))
 
     #os.remove(a_xml_path)
     #os.remove(a_swf_path)
