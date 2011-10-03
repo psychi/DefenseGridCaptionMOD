@@ -13,6 +13,7 @@ import zipfile
 import glob
 import struct
 import xml.etree.ElementTree
+import copy
 from optparse import OptionParser
 
 #ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
@@ -138,34 +139,31 @@ def _make_caption_line(i_line, i_captions, io_caption_chars):
 #------------------------------------------------------------------------------
 def _modify_fonts(io_packages, i_gfx_path, i_import_fonts_path, i_font_chars):
 
-    #a_content = io_packages.get(i_gfx_path)
-    #if a_content is None or len(a_content) < 3:
-    #    raise
-    ##a_signature = a_content[:3]
+    a_content = io_packages.get(i_gfx_path)
+    if a_content is None or len(a_content) < 3:
+        raise
+    #a_signature = a_content[:3]
 
     # ttf-fileをxml-fileに変換。
-    #a_import_fonts_path = _make_import_fonts(i_import_fonts_path, i_font_chars)
+    a_import_fonts_path = _make_import_fonts(i_import_fonts_path, i_font_chars)
 
     # gfx-fileを出力。
     a_gfx_path = os.path.basename(i_gfx_path)
     print(''.join(('writing "', a_gfx_path, '"')))
-    #_make_gfx(a_gfx_path, a_content, True)
+    _make_gfx(a_gfx_path, a_content, True)
 
     # gfx-fileをxml-fileに変換。
     a_gfx_xml_path = a_gfx_path + '.xml'
     print(''.join(('writing "', a_gfx_xml_path, '"')))
-    #subprocess.check_call(('swfmill.exe', 'swf2xml', a_gfx_path, a_gfx_xml_path))
+    subprocess.check_call(('swfmill.exe', 'swf2xml', a_gfx_path, a_gfx_xml_path))
 
     # gfx-xml-fileとttf-xml-fileを合成。
-    a_import_fonts_path = i_import_fonts_path + '.swf.xml'
-    print(''.join(('writing "', a_gfx_xml_path, '"')))
-    _merge_fonts_xml(a_gfx_xml_path, a_import_fonts_path)
-    raise
+    a_gfx_xml_xml_path = _merge_fonts_xml(a_gfx_xml_path, a_import_fonts_path)
 
     # 合成したxml-fileをswf-fileに変換。
     a_swf_path = a_gfx_path + '.swf'
     print(''.join(('writing "', a_swf_path, '"')))
-    subprocess.check_call(('swfmill.exe', 'xml2swf', a_gfx_xml_path, a_swf_path))
+    subprocess.check_call(('swfmill.exe', 'xml2swf', a_gfx_xml_xml_path, a_swf_path))
     a_content = open(a_swf_path, mode='rb').read()
     io_packages.set(i_gfx_path, a_content)
 
@@ -179,9 +177,11 @@ def _modify_fonts(io_packages, i_gfx_path, i_import_fonts_path, i_font_chars):
 def _merge_fonts_xml(i_base_xml_path, i_import_xml_path):
 
     # base-font辞書とimport-font辞書を作る。
+    print(''.join(('reading "', i_base_xml_path, '"')))
     a_base_xml = xml.etree.ElementTree.ElementTree(
         file=open(i_base_xml_path, mode='r', encoding='utf-8'))
     a_base_fonts = _make_font_dict(a_base_xml)
+    print(''.join(('reading "', i_import_xml_path, '"')))
     a_import_fonts = _make_font_dict(
         xml.etree.ElementTree.ElementTree(
             file=open(i_import_xml_path, mode='r', encoding='utf-8')))
@@ -193,8 +193,11 @@ def _merge_fonts_xml(i_base_xml_path, i_import_xml_path):
             _merge_font(a_base_font, a_import_font)
 
     # base-fontをxml-fileに出力。
+    a_xml_path = i_base_xml_path + '.xml'
+    print(''.join(('writing "', a_xml_path, '"')))
     a_base_xml.write(
-        i_base_xml_path, encoding='utf-8', method='xml', xml_declaration=True)
+        a_xml_path, encoding='utf-8', method='xml', xml_declaration=True)
+    return a_xml_path
 
 #------------------------------------------------------------------------------
 def _merge_font(io_base_font, i_import_font):
@@ -211,7 +214,7 @@ def _merge_font(io_base_font, i_import_font):
     # base-glyphのmap属性をkeyとするindex番号辞書を作る。
     a_base_map = {}
     for i, a_glyph in enumerate(a_base_glyph_list):
-        a_base_map[a_glyph['map']] = i
+        a_base_map[a_glyph.get('map')] = i
 
     # import-fontから字形を取得。
     a_import_advance_list = i_import_font.find('advance').findall('Short')
@@ -227,18 +230,18 @@ def _merge_font(io_base_font, i_import_font):
             # base-fontに新しく字形を追加する。
             a_base_glyphs.append(a_import_glyph)
             a_base_advance.append(a_import_advance)
-            xmll.etree.ElementTree.SubElement(
-                a_base_bounds,
-                'Rectangle',
-                {'left': 0, 'right': 0, 'top': 0, 'bottom': 0})
+            #xml.etree.ElementTree.SubElement(
+            #    a_base_bounds,
+            #    'Rectangle',
+            #    {'left': 0, 'right': 0, 'top': 0, 'bottom': 0})
+            a_base_bounds.append(a_base_bounds.getchildren()[0])
         else:
-            # 字形が空ならば、書き換える。
+            # 字形を書き換える。
             a_base_glyph = a_base_glyph_list[a_base_index]
-            if _is_empty_glyph(a_base_glyph):
-                a_base_glyph.remove(a_base_glyph.find('GlyphShape'))
-                a_base_glyph.append(a_import_glyph.find('GlyphShape'))
-                a_base_advance_list[a_base_index].set(
-                    'value', a_import_advance.get('value'))
+            a_base_glyph.remove(a_base_glyph.find('GlyphShape'))
+            a_base_glyph.append(a_import_glyph.find('GlyphShape'))
+            a_base_advance_list[a_base_index].set(
+                'value', a_import_advance.get('value'))
 
 #------------------------------------------------------------------------------
 def _is_empty_glyph(i_glyph):
@@ -275,24 +278,28 @@ def _make_font_dict(i_xml):
             return a_font_dict
 
 #------------------------------------------------------------------------------
+def _make_glyphs(i_glyphs, i_unused_glyphs):
+    a_used_glyphs = set(i_glyphs)
+    for a_glyph in i_unused_glyphs:
+        a_used_glyphs.discard(a_glyph)
+    return a_used_glyphs
+
+#------------------------------------------------------------------------------
 def _make_import_fonts(i_xml_path, i_font_chars):
 
-    # font文字一覧から、元のものを使う文字を取り除く。
-    a_latin_chars = ''.join((
-        ' !"#$%&\'()*+,-./0123456789:;<=>?@',
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'))
-    a_font_chars = i_font_chars
-    for a_char in a_latin_chars:
-        a_font_chars.discard(a_char)
-    a_font_chars = ''.join(sorted(a_font_chars))
-
     # 雛形を元に、font-import-xml-fileを作る。
-    a_template = xml.etree.ElementTree.ElementTree(
+    a_import_xml = xml.etree.ElementTree.ElementTree(
         file=open(i_xml_path, mode='r', encoding='utf-8'))
-    for a_font in a_template.getroot().findall('.//font'):
-        a_font.set('glyphs', a_font_chars)
+    for a_font in a_import_xml.getroot().findall('.//font'):
+
+        # 元のfontのまま使う文字を削除しておく。
+        a_font_chars = set(i_font_chars)
+        for a_glyph in a_font.get('glyphs'):
+            a_font_chars.discard(a_glyph)
+        a_font.set('glyphs', ''.join(sorted(a_font_chars)))
+
     a_xml_path = i_xml_path + '.xml'
-    xml.etree.ElementTree.ElementTree(a_template.getroot()).write(
+    xml.etree.ElementTree.ElementTree(a_import_xml.getroot()).write(
         a_xml_path, encoding='utf-8', method='xml', xml_declaration=True)
 
     # font-import-xml-fileからswf-fileを作り、それをxml-fileに変換する。
@@ -301,8 +308,8 @@ def _make_import_fonts(i_xml_path, i_font_chars):
     a_swf_xml_path = a_swf_path + '.xml'
     subprocess.check_call(('swfmill.exe', 'swf2xml', a_swf_path, a_swf_xml_path))
 
-    os.remove(a_xml_path)
-    os.remove(a_swf_path)
+    #os.remove(a_xml_path)
+    #os.remove(a_swf_path)
     return a_swf_xml_path
 
 #------------------------------------------------------------------------------

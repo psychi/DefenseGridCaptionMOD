@@ -1,29 +1,29 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <movie width="1280" height="720" framerate="1" version="8" compressed="0">
 	<background color="#000000"/>
-    <frame name="xscale">
+	<frame name="xscale">
 		<library>
-			<font id="xscale" import="ipagp.ttf"/>
+			<font id="xscale" import="ipagp.ttf" glyphs=" !&quot;#$%&amp;\&apos;()*+,-./0123456789:;&lt;=&gt;?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~©®"/>
 		</library>
-    </frame>
-    <frame name="BankGothic Md BT">
+	</frame>
+	<frame name="BankGothic Md BT">
 		<library>
-			<font id="BankGothic Md BT" import="ipagp.ttf"/>
+			<font id="BankGothic Md BT" import="ipagp.ttf" glyphs=" !&quot;#$%&amp;\&apos;()*+,-./0123456789:;&lt;=&gt;?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~©®"/>
 		</library>
-    </frame>
-    <frame name="Calibri">
+	</frame>
+	<frame name="Calibri">
 		<library>
-			<font id="Calibri" import="ipagp.ttf"/>
+			<font id="Calibri" import="ipagp.ttf" glyphs=" !&quot;#$%&amp;\&apos;()*+,-./0123456789:;&lt;=&gt;?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~©®"/>
 		</library>
-    </frame>
-    <frame name="Arial">
+	</frame>
+	<frame name="Arial">
 		<library>
-			<font id="Arial" import="ipagp.ttf"/>
+			<font id="Arial" import="ipagp.ttf" glyphs=" !&quot;#$%&amp;\&apos;()*+,-./0123456789:;&lt;=&gt;?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~©®"/>
 		</library>
-    </frame>
-    <frame name="Lucida Console">
+	</frame>
+	<frame name="Lucida Console">
 		<library>
-			<font id="Lucida Console" import="ipagp.ttf"/>
+			<font id="Lucida Console" import="ipagp.ttf" glyphs=" !&quot;#$%&amp;\&apos;()*+,-./0123456789:;&lt;=&gt;?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~©®"/>
 		</library>
-    </frame>
+	</frame>
 </movie>
