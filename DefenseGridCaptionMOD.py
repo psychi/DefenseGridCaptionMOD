@@ -41,7 +41,8 @@ def _main(i_options, i_arguments):
             a_packages, 
             'ui\\gfxfontlib.gfx',
             i_options.import_fonts,
-            a_font_chars)
+            a_font_chars,
+            ord(i_options.ascent_char[0]))
 
     # 書き換えたpackageをfileに出力。
     a_packages.write(i_options.output_dir)
@@ -140,8 +141,10 @@ def _make_caption_line(i_line, i_captions, io_caption_chars):
     return i_line
 
 #------------------------------------------------------------------------------
-def _modify_fonts(io_packages, i_gfx_path, i_import_fonts_path, i_font_chars):
+def _modify_fonts(
+    io_packages, i_gfx_path, i_import_fonts_path, i_font_chars, i_ascent_char):
 
+    # packageからgfx-contentを取得。
     a_content = io_packages.get(i_gfx_path)
     if a_content is None or len(a_content) < 3:
         raise
@@ -160,7 +163,8 @@ def _modify_fonts(io_packages, i_gfx_path, i_import_fonts_path, i_font_chars):
         'swfmill.exe', '-v', 'swf2xml', a_gfx_path, a_gfx_xml_path))
 
     # gfx-xml-fileとttf-xml-fileを合成。
-    a_gfx_xml_xml_path = _merge_fonts_xml(a_gfx_xml_path, a_import_fonts_path)
+    a_gfx_xml_xml_path = _merge_fonts_xml(
+        a_gfx_xml_path, a_import_fonts_path, i_ascent_char)
 
     # 合成したxml-fileをswf-fileに変換。
     a_swf_path = a_gfx_path + '.swf'
@@ -176,7 +180,7 @@ def _modify_fonts(io_packages, i_gfx_path, i_import_fonts_path, i_font_chars):
     #os.remove(a_swf_path)
 
 #------------------------------------------------------------------------------
-def _merge_fonts_xml(i_base_xml_path, i_import_xml_path):
+def _merge_fonts_xml(i_base_xml_path, i_import_xml_path, i_ascent_char):
 
     # base-font辞書とimport-font辞書を作る。
     print(''.join(('reading "', i_base_xml_path, '"')))
@@ -192,7 +196,7 @@ def _merge_fonts_xml(i_base_xml_path, i_import_xml_path):
     for a_key, a_base_font in a_base_fonts.items():
         a_import_font = a_import_fonts.get(a_key)
         if a_import_font is not None:
-            _merge_font(a_base_font, a_import_font)
+            _merge_font(a_base_font, a_import_font, i_ascent_char)
 
     # base-fontをxml-fileに出力。
     a_xml_path = i_base_xml_path + '.xml'
@@ -202,12 +206,12 @@ def _merge_fonts_xml(i_base_xml_path, i_import_xml_path):
     return a_xml_path
 
 #------------------------------------------------------------------------------
-def _merge_font(io_base_font, i_import_font):
+def _merge_font(io_base_font, i_import_font, i_ascent_char):
 
     # base-fontから字形を取得。
     a_base_bounds = io_base_font.find('bounds')
-    a_base_advance = io_base_font.find('advance')
-    a_base_advance_list = a_base_advance.findall('Short')
+    a_base_advances = io_base_font.find('advance')
+    a_base_advance_list = a_base_advances.findall('Short')
     a_base_glyphs = io_base_font.find('glyphs')
     a_base_glyph_list = a_base_glyphs.findall('Glyph')
     if len(a_base_advance_list) != len(a_base_advance_list):
@@ -224,6 +228,16 @@ def _merge_font(io_base_font, i_import_font):
     if len(a_import_advance_list) != len(a_import_glyph_list):
         raise
 
+    # 字形の高さの比率を計算。
+    a_height_ratio = None #io_base_font.get('ascent') / i_import_font.get('ascent')
+    if i_ascent_char is not None:
+        a_base_rect = _get_glyph_rectangle(a_base_glyph_list, i_ascent_char)
+        if a_base_rect is not None:
+            a_import_rect = _get_glyph_rectangle(
+                a_import_glyph_list, i_ascent_char)
+            if a_import_rect is not None:
+                a_height_ratio = a_base_rect[1] / a_import_rect[1]
+
     # base-fontにimport-fontを合成する。
     for i, a_import_glyph in enumerate(a_import_glyph_list):
         a_import_advance = a_import_advance_list[i]
@@ -231,19 +245,93 @@ def _merge_font(io_base_font, i_import_font):
         if a_base_index is None:
             # base-fontに新しく字形を追加する。
             a_base_glyphs.append(a_import_glyph)
-            a_base_advance.append(a_import_advance)
+            a_base_advances.append(a_import_advance)
             #xml.etree.ElementTree.SubElement(
             #    a_base_bounds,
             #    'Rectangle',
             #    {'left': 0, 'right': 0, 'top': 0, 'bottom': 0})
             a_base_bounds.append(a_base_bounds.getchildren()[0])
+            a_base_glyph = a_base_glyphs[-1]
+            a_base_advance = a_base_advances[-1]
         else:
             # 字形を書き換える。
             a_base_glyph = a_base_glyph_list[a_base_index]
             a_base_glyph.remove(a_base_glyph.find('GlyphShape'))
             a_base_glyph.append(a_import_glyph.find('GlyphShape'))
-            a_base_advance_list[a_base_index].set(
-                'value', a_import_advance.get('value'))
+            a_base_advance = a_base_advance_list[a_base_index]
+            a_base_advance.set('value', a_import_advance.get('value'))
+
+        if a_height_ratio is not None:
+            _scale_glyph(a_base_glyph, a_base_advance, a_height_ratio)
+
+#------------------------------------------------------------------------------
+def _get_glyph_rectangle(i_glyphs, i_code):
+    for a_glyph in i_glyphs:
+        if a_glyph.get('map') == i_code:
+            return _get_edges_rectangle(_get_glyph_edges(a_glyph))
+
+#------------------------------------------------------------------------------
+def _get_glyph_edges(i_glyph):
+    a_shape = i_glyph.find('GlyphShape')
+    if a_shape is not None:
+        a_edges = a_shape.find('edges')
+        if a_edges is not None:
+            return a_edges
+
+#------------------------------------------------------------------------------
+def _get_edges_rectangle(i_edges):
+
+    if i_edges is None:
+        return
+
+    a_rectangle = None
+    for a_edge in i_edges.getchildren()[:-1]:
+        if 'ShapeSetup' == a_edge.tag:
+            a_position = [a_edge.get('x'), a_edge.get('y')]
+            if a_rectangle is None:
+                a_rectangle = [
+                    a_position[0],
+                    a_position[1],
+                    a_position[0],
+                    a_position[1]]
+                continue
+        elif 'CurveTo' == a_edge.tag:
+            a_position[0] += a_edge.get('x2')
+            a_position[1] += a_edge.get('y2')
+        elif 'LineTo' == a_edge.tag:
+            a_position[0] += a_edge.get('x')
+            a_position[1] += a_edge.get('y')
+        else:
+            continue
+
+        # 矩形を更新。
+        if a_position[0] < a_rectangle[0]:
+            a_rectangle[0] = a_position[0]
+        elif a_rectangle[2] < a_position[0]:
+            a_rectangle[2] = a_position[0]
+        if a_position[1] < a_rectangle[1]:
+            a_rectangle[1] = a_position[1]
+        elif a_rectangle[3] < a_position[1]:
+            a_rectangle[3] = a_position[1]
+
+    return a_rectangle
+
+#------------------------------------------------------------------------------
+def _scale_glyph(io_glyph, io_advance, i_scale):
+    io_advance.set(int(io_advance.get('value') * i_scale))
+    a_edges = _get_glyph_edges(io_glyph)
+    if a_edges is not None:
+        for a_edge in a_edges.getchildren()[:-1]:
+            if 'CurveTo' == a_edge.tag:
+                _scale_glyph_edge(a_edge, ('x1', 'y1'), i_scale)
+                _scale_glyph_edge(a_edge, ('x2', 'y2'), i_scale)
+            elif a_edge.tag in frozenset('ShapeSetup', 'LineTo'):
+                _scale_glyph_edge(a_edge, ('x', 'y'), i_scale)
+
+#------------------------------------------------------------------------------
+def _scale_glyph_edge(io_edge, i_keys, i_scale):
+    io_edge.set(i_keys[0], int(io_edge.get(i_keys[0]) * i_scale))
+    io_edge.set(i_keys[1], int(io_edge.get(i_keys[1]) * i_scale))
 
 #------------------------------------------------------------------------------
 def _make_font_dict(i_xml):
