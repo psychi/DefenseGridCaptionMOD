@@ -37,12 +37,16 @@ def _main(i_options, i_arguments):
 
     # fontを書き換える
     if i_options.import_fonts:
+        if i_options.ascent_char:
+            a_ascent_char = ord(i_options.ascent_char[0])
+        else:
+            a_ascent_char = None
         _modify_fonts(
             a_packages, 
             'ui\\gfxfontlib.gfx',
             i_options.import_fonts,
             a_font_chars,
-            ord(i_options.ascent_char[0]))
+            a_ascent_char)
 
     # 書き換えたpackageをfileに出力。
     a_packages.write(i_options.output_dir)
@@ -141,8 +145,14 @@ def _make_caption_line(i_line, i_captions, io_caption_chars):
     return i_line
 
 #------------------------------------------------------------------------------
+## @brief font用gfx-contentを書き換える。
+#  @param[in,out] io_packages gfx-contentを含むpackage。
+#  @param[in] i_gfx_path      gfx-contentのpath名。
+#  @param[in] i_xml_path      import-fontが設定されているxml-fileのpath名。
+#  @param[in] i_font_chars    書き換えるfont文字set。
+#  @param[in] i_ascent_char   font-sizeの基準となる文字のunicode番号。
 def _modify_fonts(
-    io_packages, i_gfx_path, i_import_fonts_path, i_font_chars, i_ascent_char):
+    io_packages, i_gfx_path, i_xml_path, i_font_chars, i_ascent_char):
 
     # packageからgfx-contentを取得。
     a_content = io_packages.get(i_gfx_path)
@@ -151,7 +161,7 @@ def _modify_fonts(
     #a_signature = a_content[:3]
 
     # ttf-fileをxml-fileに変換。
-    a_import_fonts_path = _make_import_fonts(i_import_fonts_path, i_font_chars)
+    a_xml_path = _make_import_fonts(i_xml_path, i_font_chars, i_ascent_char)
 
     # gfx-fileを出力。
     a_gfx_path = os.path.basename(i_gfx_path)
@@ -164,7 +174,7 @@ def _modify_fonts(
 
     # gfx-xml-fileとttf-xml-fileを合成。
     a_gfx_xml_xml_path = _merge_fonts_xml(
-        a_gfx_xml_path, a_import_fonts_path, i_ascent_char)
+        a_gfx_xml_path, a_xml_path, i_ascent_char)
 
     # 合成したxml-fileをswf-fileに変換。
     a_swf_path = a_gfx_path + '.swf'
@@ -174,7 +184,7 @@ def _modify_fonts(
     io_packages.set(i_gfx_path, a_content)
 
     # 後始末。
-    #os.remove(a_import_fonts_path)
+    #os.remove(a_xml_path)
     #os.remove(a_gfx_path)
     #os.remove(a_gfx_xml_path)
     #os.remove(a_swf_path)
@@ -220,7 +230,7 @@ def _merge_font(io_base_font, i_import_font, i_ascent_char):
     # base-glyphのmap属性をkeyとするindex番号辞書を作る。
     a_base_map = {}
     for i, a_glyph in enumerate(a_base_glyph_list):
-        a_base_map[a_glyph.get('map')] = i
+        a_base_map[int(a_glyph.get('map'))] = i
 
     # import-fontから字形を取得。
     a_import_advance_list = i_import_font.find('advance').findall('Short')
@@ -241,7 +251,8 @@ def _merge_font(io_base_font, i_import_font, i_ascent_char):
     # base-fontにimport-fontを合成する。
     for i, a_import_glyph in enumerate(a_import_glyph_list):
         a_import_advance = a_import_advance_list[i]
-        a_base_index = a_base_map.get(a_import_glyph.get('map'))
+        a_code = int(a_import_glyph.get('map'))
+        a_base_index = a_base_map.get(a_code)
         if a_base_index is None:
             # base-fontに新しく字形を追加する。
             a_base_glyphs.append(a_import_glyph)
@@ -253,13 +264,15 @@ def _merge_font(io_base_font, i_import_font, i_ascent_char):
             a_base_bounds.append(a_base_bounds.getchildren()[0])
             a_base_glyph = a_base_glyphs[-1]
             a_base_advance = a_base_advances[-1]
-        else:
+        elif i_ascent_char != a_code:
             # 字形を書き換える。
             a_base_glyph = a_base_glyph_list[a_base_index]
             a_base_glyph.remove(a_base_glyph.find('GlyphShape'))
             a_base_glyph.append(a_import_glyph.find('GlyphShape'))
             a_base_advance = a_base_advance_list[a_base_index]
             a_base_advance.set('value', a_import_advance.get('value'))
+        else:
+            continue
 
         if a_height_ratio is not None:
             _scale_glyph(a_base_glyph, a_base_advance, a_height_ratio)
@@ -267,16 +280,14 @@ def _merge_font(io_base_font, i_import_font, i_ascent_char):
 #------------------------------------------------------------------------------
 def _get_glyph_rectangle(i_glyphs, i_code):
     for a_glyph in i_glyphs:
-        if a_glyph.get('map') == i_code:
+        if int(a_glyph.get('map')) == i_code:
             return _get_edges_rectangle(_get_glyph_edges(a_glyph))
 
 #------------------------------------------------------------------------------
 def _get_glyph_edges(i_glyph):
     a_shape = i_glyph.find('GlyphShape')
     if a_shape is not None:
-        a_edges = a_shape.find('edges')
-        if a_edges is not None:
-            return a_edges
+        return a_shape.find('edges')
 
 #------------------------------------------------------------------------------
 def _get_edges_rectangle(i_edges):
@@ -287,7 +298,7 @@ def _get_edges_rectangle(i_edges):
     a_rectangle = None
     for a_edge in i_edges.getchildren()[:-1]:
         if 'ShapeSetup' == a_edge.tag:
-            a_position = [a_edge.get('x'), a_edge.get('y')]
+            a_position = [int(a_edge.get('x')), int(a_edge.get('y'))]
             if a_rectangle is None:
                 a_rectangle = [
                     a_position[0],
@@ -296,11 +307,11 @@ def _get_edges_rectangle(i_edges):
                     a_position[1]]
                 continue
         elif 'CurveTo' == a_edge.tag:
-            a_position[0] += a_edge.get('x2')
-            a_position[1] += a_edge.get('y2')
+            a_position[0] += int(a_edge.get('x2'))
+            a_position[1] += int(a_edge.get('y2'))
         elif 'LineTo' == a_edge.tag:
-            a_position[0] += a_edge.get('x')
-            a_position[1] += a_edge.get('y')
+            a_position[0] += int(a_edge.get('x'))
+            a_position[1] += int(a_edge.get('y'))
         else:
             continue
 
@@ -318,20 +329,20 @@ def _get_edges_rectangle(i_edges):
 
 #------------------------------------------------------------------------------
 def _scale_glyph(io_glyph, io_advance, i_scale):
-    io_advance.set(int(io_advance.get('value') * i_scale))
+    io_advance.set('value', str(int(int(io_advance.get('value')) * i_scale)))
     a_edges = _get_glyph_edges(io_glyph)
     if a_edges is not None:
         for a_edge in a_edges.getchildren()[:-1]:
             if 'CurveTo' == a_edge.tag:
                 _scale_glyph_edge(a_edge, ('x1', 'y1'), i_scale)
                 _scale_glyph_edge(a_edge, ('x2', 'y2'), i_scale)
-            elif a_edge.tag in frozenset('ShapeSetup', 'LineTo'):
+            elif 'ShapeSetup' == a_edge.tag or 'LineTo' == a_edge.tag:
                 _scale_glyph_edge(a_edge, ('x', 'y'), i_scale)
 
 #------------------------------------------------------------------------------
 def _scale_glyph_edge(io_edge, i_keys, i_scale):
-    io_edge.set(i_keys[0], int(io_edge.get(i_keys[0]) * i_scale))
-    io_edge.set(i_keys[1], int(io_edge.get(i_keys[1]) * i_scale))
+    io_edge.set(i_keys[0], str(int(int(io_edge.get(i_keys[0])) * i_scale)))
+    io_edge.set(i_keys[1], str(int(int(io_edge.get(i_keys[1])) * i_scale)))
 
 #------------------------------------------------------------------------------
 def _make_font_dict(i_xml):
@@ -364,7 +375,7 @@ def _make_glyphs(i_glyphs, i_unused_glyphs):
     return a_used_glyphs
 
 #------------------------------------------------------------------------------
-def _make_import_fonts(i_xml_path, i_font_chars):
+def _make_import_fonts(i_xml_path, i_font_chars, i_ascent_char):
 
     # 雛形を元に、font-import-xml-fileを作る。
     a_import_xml = xml.etree.ElementTree.ElementTree(
@@ -375,6 +386,7 @@ def _make_import_fonts(i_xml_path, i_font_chars):
         a_font_chars = set(i_font_chars)
         for a_glyph in a_font.get('glyphs'):
             a_font_chars.discard(a_glyph)
+        a_font_chars.add(chr(i_ascent_char))
         a_font.set('glyphs', ''.join(sorted(a_font_chars)))
 
     a_xml_path = i_xml_path + '.xml'
@@ -470,6 +482,12 @@ def _table_ns(i_string):
 ## @brief command-line引数を解析。
 #  @return option値と引数listのtuple。
 def _parse_arguments(io_parser):
+    io_parser.add_option(
+        '-a',
+        '--ascent',
+        type='string',
+        dest='ascent_char',
+        help='set ascent character')
     io_parser.add_option(
         '-c',
         '--captions',
