@@ -20,7 +20,7 @@ Windows用『Defense Grid: The Awakening』を任意のディレクトリにイ�
 2. **"DefenseGrid/"**の直下にあるファイルのうち、ファイル名の拡張子が**dgp**となっているものすべてを、**"DefenseGridCaptionMOD/input_dgp/"**の直下にコピーしてください。
 
 ### 4. 日本語フォントの入手
-[IPAフォント公式サイト](http://ossipedia.ipa.go.jp/ipafont/)から、[ttf形式のIPA Pゴシックフォント](http://ossipedia.ipa.go.jp/ipafont/ipagp00303.php)をダウンロードし、その中に含まれている**"ipagp.ttf"**を、**"DefenseGridCaptionMOD/"**の直下にコピーしてください。
+Windowsのコントロールパネルからフォントを開いて、「メイリオ レギュラー（meiryo.ttc）」と「メイリオ ボールド（meiryob.ttc）」との2つを、**"DefenseGridCaptionMOD/"**の直下にコピーしてください。
 
 ### 5. "swfmill.exe"の入手
 [swfmill公式サイト](http://swfmill.org/)から[Windows用swfmillバイナリ](http://swfmill.org/releases/swfmill-0.3.1-win32.zip)をダウンロードし、その中に含まれている**"swfmill.exe"**を、**"DefenseGridCaptionMOD/"**の直下にコピーしてください。
