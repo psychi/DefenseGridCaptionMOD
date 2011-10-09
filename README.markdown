@@ -13,14 +13,14 @@ Windows用『Defense Grid: The Awakening』を任意のディレクトリにイ�
 
 ### 2. DefenseGridCaptionMODの入手
 1. [DefenseGridCaptionMOD - GitHub](http://github.com/psychi/DefenseGridCaptionMOD/)にある「Download」ボタンを押して、圧縮ファイルをダウンロードして下さい。ダウンロードする圧縮ファイルはzip形式とtar.gz形式を選べますが、どちらをダウンロードしても構いません。
-2. ダウンロードした圧縮ファイルを任意のディレクトリに展開してください。以後このディレクトリを**"DefenseGridCaptionMOD/"**と表記します。
+2. ダウンロードした圧縮ファイルを、任意のディレクトリに展開してください。ただし、**展開先ディレクトリの絶対パス名には、全角文字が含まれない**ようにしてください。以後このディレクトリを**"DefenseGridCaptionMOD/"**と表記します。
 
 ### 3. 『Defense Grid: The Awakening』のオリジナルデータのコピー
 1. **"DefenseGridCaptionMOD/"**の直下に、**"input_dgp"**と**"output_dgp"**の2つのディレクトリを作ってください。
 2. **"DefenseGrid/"**の直下にあるファイルのうち、ファイル名の拡張子が**dgp**となっているものすべてを、**"DefenseGridCaptionMOD/input_dgp/"**の直下にコピーしてください。
 
 ### 4. 日本語フォントの入手
-Windowsのコントロールパネルからフォントを開いて、「メイリオ レギュラー（meiryo.ttc）」と「メイリオ ボールド（meiryob.ttc）」との2つを、**"DefenseGridCaptionMOD/"**の直下にコピーしてください。
+Windowsのコントロールパネルからフォントを開いて、「メイリオ レギュラー（meiryo.ttc）」と「メイリオ ボールド（meiryob.ttc）」の2つを、**"DefenseGridCaptionMOD/"**の直下にコピーしてください。
 
 ### 5. "swfmill.exe"の入手
 [swfmill公式サイト](http://swfmill.org/)から[Windows用swfmillバイナリ](http://swfmill.org/releases/swfmill-0.3.1-win32.zip)をダウンロードし、その中に含まれている**"swfmill.exe"**を、**"DefenseGridCaptionMOD/"**の直下にコピーしてください。
@@ -53,3 +53,5 @@ Windowsのコントロールパネルからフォントを開いて、「メイ�
 1. [DGTA翻訳作業シート](https://spreadsheets.google.com/spreadsheet/ccc?key=0Al6UoUVkZrnXdG9uR1VyU0tPMU1QQUgwcGpYbWQ1YlE&hl=ja&pli=1#gid=1)にあるメニュバーから、「ファイル」→「形式を指定してダウンロード」→「OpenOffice」を選択し、odsファイルをダウンロードして下さい。
 2. ダウンロードしたodsファイルを、**"DefenseGridCaptionMOD/DefenseGridCaptionMOD.ods"**に上書きしてください。
 3. 前節の**『Defense Grid: The Awakening』の字幕を日本語化する手順**に従って作業をすすめてください。
+
+
