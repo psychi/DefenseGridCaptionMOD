@@ -54,4 +54,19 @@ Windowsのコントロールパネルからフォントを開いて、「メイ�
 2. ダウンロードしたodsファイルを、**"DefenseGridCaptionMOD/DefenseGridCaptionMOD.ods"**に上書きしてください。
 3. 前節の**『Defense Grid: The Awakening』の字幕を日本語化する手順**に従って作業をすすめてください。
 
+## 2011.12.07以前から使っている方へ
+2011.12.07に『Defense Grid: The Awakening』のプログラムに大きな更新がありました。この更新によって以前のdgpファイルが使えなくなったらしく、DefenseGridCaptionMODを適用した状態の『Defense Grid: The Awakening』が起動しなくなっていたようです。
 
+2011.12.07以前からDefenseGridCaptionMODを使っていた方は、以下の手順で更新を行なってください。
+
+1. DefenseGridCaptionMODの最新版を取得してください。
+
+2. **"DefenseGridCaptionMOD/input_dgp/"**以下にあるdgpファイルをすべて削除してください。
+
+3. 『Defense Grid: The Awakening』を一度アンインストールしてから、再度インストールしてください。
+
+4. **"DefenseGrid/"**の直下にあるファイルのうち、ファイル名の拡張子が**dgp**となっているものすべてを、**"DefenseGridCaptionMOD/input_dgp/"**の直下にコピーしてください。
+
+5. 「『Defense Grid: The Awakening』の字幕を日本語化する手順」を実行してください。
+
+以上です。
